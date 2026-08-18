@@ -1,0 +1,260 @@
+# ───────────────────────────────────────────────────────────────
+# main.py  –  Cricket Cover Drive Pose Analysis — Entry Point
+# ───────────────────────────────────────────────────────────────
+"""
+Usage:
+    python main.py                                     # opens file picker
+    python main.py --image  path/to/cover_drive.jpg
+    python main.py --video  path/to/batting_clip.mp4
+    python main.py --webcam
+    python main.py --webcam --save output.mp4
+
+Keys during live view:
+    q / ESC  — quit
+    s        — save current frame as screenshot
+    p        — pause / resume (video & webcam)
+"""
+
+import argparse
+import os
+import sys
+import time
+
+import cv2
+import numpy as np
+
+from pose_detector import PoseDetector
+from cover_drive_analyzer import CoverDriveAnalyzer
+from visualizer import Visualizer
+
+
+# ── File picker (tkinter) ─────────────────────────────────────
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv", ".webm"}
+
+def browse_file() -> tuple[str, str]:
+    """
+    Open a file-picker dialog and return (path, kind).
+    kind is 'image' or 'video' based on the chosen file extension.
+    Returns (None, None) if the user cancels.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print("[ERROR] tkinter not available — please pass --image or --video instead.")
+        sys.exit(1)
+
+    root = tk.Tk()
+    root.withdraw()                # hide the root window
+    root.attributes("-topmost", True)
+
+    filetypes = [
+        ("Video files", "*.mp4 *.avi *.mov *.mkv *.wmv *.flv *.webm"),
+        ("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"),
+        ("All files",   "*.*"),
+    ]
+
+    path = filedialog.askopenfilename(
+        title="Posture Expert — Select a cricket video or image",
+        filetypes=filetypes,
+    )
+    root.destroy()
+
+    if not path:
+        return None, None
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext in IMAGE_EXTS:
+        return path, "image"
+    else:
+        return path, "video"        # treat anything non-image as video
+
+
+# ── Frame Processing ──────────────────────────────────────────
+
+def process_frame(frame: np.ndarray, detector: PoseDetector,
+                  analyzer: CoverDriveAnalyzer, viz: Visualizer) -> np.ndarray:
+    """Run the full pipeline on a single frame and return the annotated image."""
+    detections = detector.detect(frame)
+    player = detector.get_primary_player(detections)
+
+    if player is None:
+        # No person detected — show placeholder text
+        cv2.putText(frame, "No player detected — step into frame",
+                    (40, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8,
+                    (0, 0, 255), 2, cv2.LINE_AA)
+        return frame
+
+    analysis = analyzer.analyze(player["keypoints"])
+    frame = viz.render(frame, player, analysis)
+    return frame
+
+
+# ── Image Mode ────────────────────────────────────────────────
+
+def run_image(path: str, detector, analyzer, viz):
+    """Analyze a single image and display the result."""
+    frame = cv2.imread(path)
+    if frame is None:
+        print(f"[ERROR] Cannot read image: {path}")
+        sys.exit(1)
+
+    print(f"[INFO] Analyzing image: {path}")
+    result = process_frame(frame, detector, analyzer, viz)
+
+    # Save output
+    out_path = path.rsplit(".", 1)[0] + "_analyzed.jpg"
+    cv2.imwrite(out_path, result)
+    print(f"[INFO] Saved annotated image → {out_path}")
+
+    cv2.imshow("Posture Expert — Cover Drive Analysis", result)
+    print("[INFO] Press any key to exit.")
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+# ── Video / Webcam Mode ──────────────────────────────────────
+
+def run_video(source, detector, analyzer, viz, save_path: str = None):
+    """
+    Process video file or webcam feed frame-by-frame.
+
+    Args:
+        source: file path (str) or camera index (int).
+        save_path: optional output file path.
+    """
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        print(f"[ERROR] Cannot open video source: {source}")
+        sys.exit(1)
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    w   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    hud_w = 320  # must match Visualizer.HUD_WIDTH
+    total_w = w + hud_w  # combined frame width (video + HUD panel)
+
+    writer = None
+    if save_path:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(save_path, fourcc, fps, (total_w, h))
+        print(f"[INFO] Recording output → {save_path}")
+
+    # Auto-save analyzed video next to the original
+    if save_path is None and isinstance(source, str):
+        base, ext = os.path.splitext(source)
+        save_path = f"{base}_analyzed{ext}"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(save_path, fourcc, fps, (total_w, h))
+        print(f"[INFO] Auto-saving analyzed video → {save_path}")
+
+    # Create the window BEFORE the loop and force it to the front
+    win_name = "Posture Expert - Cover Drive Analysis"
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(win_name, min(total_w, 1280), min(h, 720))  # fit screen nicely
+    cv2.setWindowProperty(win_name, cv2.WND_PROP_TOPMOST, 1)  # bring to front
+
+    src_label = "webcam" if isinstance(source, int) else source
+    print(f"[INFO] Processing: {src_label}  |  Resolution: {w}x{h}  |  FPS: {fps:.1f}")
+    print("[INFO] Keys:  q/ESC=quit  s=screenshot  p=pause")
+
+    paused = False
+    frame_count = 0
+    t_start = time.time()
+
+    while True:
+        if not paused:
+            ret, frame = cap.read()
+            if not ret:
+                print("[INFO] End of video.")
+                break
+            frame_count += 1
+
+            result = process_frame(frame, detector, analyzer, viz)
+
+            # FPS counter
+            elapsed = time.time() - t_start
+            live_fps = frame_count / elapsed if elapsed > 0 else 0
+            cv2.putText(result, f"FPS: {live_fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
+
+            if writer:
+                writer.write(result)
+
+            cv2.imshow(win_name, result)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key in (ord("q"), 27):        # q or ESC
+            break
+        elif key == ord("s"):            # screenshot
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            snap_path = f"screenshot_{ts}.jpg"
+            cv2.imwrite(snap_path, result)
+            print(f"[INFO] Screenshot saved → {snap_path}")
+        elif key == ord("p"):            # pause / resume
+            paused = not paused
+            print(f"[INFO] {'Paused' if paused else 'Resumed'}")
+
+    cap.release()
+    if writer:
+        writer.release()
+    cv2.destroyAllWindows()
+    print(f"[INFO] Processed {frame_count} frames in {elapsed:.1f}s "
+          f"({live_fps:.1f} avg FPS)")
+
+
+# ── CLI ───────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Posture Expert — Cricket Cover Drive Keypoint Analysis (YOLOv8)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    group = parser.add_mutually_exclusive_group(required=False)  # not required — browse is default
+    group.add_argument("--image",  type=str, help="Path to an image file")
+    group.add_argument("--video",  type=str, help="Path to a video file")
+    group.add_argument("--browse", action="store_true",
+                       help="Open a file picker to select a video or image (default)")
+
+    parser.add_argument("--save",  type=str, default=None,
+                        help="Save output video to this path (video only)")
+    parser.add_argument("--model", type=str, default=None,
+                        help="YOLOv8-pose model path (default: yolov8n-pose.pt)")
+
+    args = parser.parse_args()
+
+    # ── Determine input mode ──
+    # If nothing specified, default to browse
+    use_browse = args.browse or (not args.image and not args.video)
+
+    if use_browse:
+        print("[INFO] Opening file picker — select your cricket video or image...")
+        path, kind = browse_file()
+        if path is None:
+            print("[INFO] No file selected. Exiting.")
+            sys.exit(0)
+        if kind == "image":
+            args.image = path
+        else:
+            args.video = path
+        print(f"[INFO] Selected: {path}  ({kind})")
+
+    # Initialise components
+    model_name = args.model or "yolov8n-pose.pt"
+    print(f"[INFO] Loading YOLOv8 pose model: {model_name}")
+    detector = PoseDetector(model_path=model_name)
+    analyzer = CoverDriveAnalyzer()
+    viz      = Visualizer()
+    print("[INFO] Model loaded successfully ✓")
+
+    if args.image:
+        run_image(args.image, detector, analyzer, viz)
+    elif args.video:
+        run_video(args.video, detector, analyzer, viz, save_path=args.save)
+
+
+if __name__ == "__main__":
+    main()
