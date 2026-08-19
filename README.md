@@ -1,67 +1,87 @@
-# 🏏 Posture Expert — Cricket Cover Drive Analysis
+# 🏏 Posture Expert — AI Cricket Cover Drive Analysis
 
-![Posture Expert Demo](assets/demo_screenshot.png)
+An advanced computer vision pipeline for real-time biomechanical analysis of the cricket cover drive. 
 
-Full-body keypoint detection and biomechanical analysis for the cricket cover drive shot, powered by **YOLOv8 Pose Estimation**.
+## 📸 System in Action
+The system is highly robust across various broadcast angles, camera zooms, and batting phases:
 
-## Features
+| Impact Phase (Player 1) | Impact Phase (Player 2) |
+| :---: | :---: |
+| ![Demo 1](assets/demo1.png) | ![Demo 2](assets/demo2.png) |
 
-- **Intelligent Tracking** — Smart heuristics perfectly lock onto the striker, ignoring fielders, non-strikers, and bowlers.
-- **Broadcast-Style Freeze Frame** — Video plays cleanly, automatically pausing exactly at the "Impact" phase to display the analysis overlay.
-- **17 COCO Keypoints** — detects nose, eyes, ears, shoulders, elbows, wrists, hips, knees, and ankles.
-- **6 Joint Angles** — front/back elbow, front/back knee, hip rotation, shoulder alignment.
-- **4-Phase Detection** — Stance → Backswing & Stride → Downswing & Impact → Follow-through.
-- **Posture Score** — 0–100 composite score based on biomechanical ideals.
-- **Live Coaching Tips** — actionable feedback on form corrections.
-- **HUD Dashboard** — real-time on-screen overlay with all metrics.
+| Stance Phase | High-Zoom Tracking |
+| :---: | :---: |
+| ![Demo 3](assets/demo3.png) | ![Demo 4](assets/demo4.png) |
 
-## Libraries & Architecture
+*(Also correctly identifies and scores varying postures like in [Demo 5](assets/demo5.png))*
 
-This project leverages three primary core libraries to achieve real-time biomechanical analysis:
+---
 
-- **[Ultralytics (YOLOv8)](https://github.com/ultralytics/ultralytics):** Responsible for the core AI pose estimation. It takes raw video frames and outputs 17 highly-accurate human body keypoints (coordinates and confidence scores) in real-time.
-- **[OpenCV (`cv2`)](https://opencv.org/):** Responsible for the video processing pipeline. It reads video files, extracts frames, handles the graphical user interface (drawing the skeleton, joint arcs, text, side-panel HUD), and saves the final analyzed video output.
-- **[NumPy](https://numpy.org/):** Responsible for the heavy mathematical lifting. It processes the raw keypoint coordinate arrays and calculates the complex 3-point vertex geometry (using trigonometry/arctangents) to measure exact joint angles (e.g., knee flexion).
+## 🧠 Technical Architecture & Theory
 
-## Quick Start
+This project was engineered to solve three major challenges in sports computer vision: **Multi-person disambiguation** (finding the batsman among bowlers/fielders), **Occlusion handling** (dealing with batting pads blocking lower-body keypoints), and **Real-time processing** (running frame-by-frame analysis without lag).
 
-### 1. Install Dependencies
+### Core Libraries & Architectural Justification
 
+#### 1. Pose Estimation: Ultralytics YOLOv8-Pose
+* **Why YOLOv8?** We chose YOLOv8 over alternatives like **MediaPipe** or **OpenPose**. 
+  * *MediaPipe* is exceptionally fast but natively struggles with multi-person scenes (it frequently jumps between the bowler, non-striker, and striker).
+  * *OpenPose* handles multiple people well but is computationally heavy, often requiring high-end GPUs to achieve real-time FPS. 
+  * *YOLOv8-Pose* strikes the perfect balance: a single-pass CNN architecture that simultaneously detects bounding boxes and 17 COCO keypoints, maintaining high FPS while easily tracking 10+ people on a cricket field.
+* **Implementation:** The model is configured with a lowered `CONFIDENCE_THRESHOLD = 0.35` specifically to combat the occlusion caused by bulky cricket equipment (helmets, batting pads, and gloves) which usually confuse standard COCO-trained models.
+
+#### 2. Vision & UI Pipeline: OpenCV (`cv2`)
+* **Why OpenCV?** For the graphical pipeline, OpenCV was chosen over high-level wrappers like *PIL* or *Matplotlib*. 
+  * Video streams are effectively massive 3D arrays (Frames × Height × Width × Channels). OpenCV operates directly on memory buffers using heavily optimized C/C++ backends.
+  * It provides zero-overhead rendering for our HUD, dynamically padding frames to standardize resolution (preventing text-squashing on TikTok/vertical video formats), and creating the broadcast-style freeze-frame effect.
+
+#### 3. Biomechanical Mathematics: NumPy
+* **Why NumPy?** Computing 6 different joint angles per frame requires calculating inverse tangents across 3-point vertices.
+  * Doing this in pure Python `math` loops is slow. NumPy vectorizes these operations, running them closer to the hardware level.
+
+---
+
+## ⚙️ Algorithmic Deep-Dive
+
+### 1. Smart Striker Identification (`pose_detector.py`)
+Cricket broadcasts present a unique challenge: the bowler is often in the extreme foreground (producing the largest bounding box), and the non-striker is closer to the camera than the striker. 
+To solve this, the system uses a heuristic scoring algorithm rather than naïve area-based selection:
+* **Centrality Score:** The camera invariably tracks the ball, placing the striker near the horizontal center (`image_width / 2`).
+* **Depth Penalty (`y2` coordinate):** Foreground objects (bowlers) have their feet at the very bottom edge of the frame. The system mathematically penalizes bounding boxes that touch the bottom 10% of the screen.
+* **Area Filtering:** Rejects microscopic boxes (deep fielders) to save compute.
+
+### 2. Occlusion-Resistant Phase Detection (`cover_drive_analyzer.py`)
+Biomechanical analysis requires knowing *when* the shot is being played. The system breaks the shot into 4 phases: *Stance, Backswing & Stride, Downswing & Impact, Follow-through*.
+* **The Pad Problem:** Batting pads heavily obscure the knees and ankles, meaning `front_knee` confidence often drops to zero. 
+* **The Solution:** The algorithm uses the upper body as a proxy. For the critical **Impact** phase, it looks for an extended front elbow (`> 130°`) combined with the wrists dropping below the hips/shoulders. 
+
+### 3. Broadcast Freeze-Frame (`main.py`)
+To prevent visual clutter, the system mimics a professional sports broadcast. 
+1. While the bowler runs in, the video plays cleanly with no skeletal overlays.
+2. The AI silently analyzes frames in the background memory buffer.
+3. The exact millisecond the algorithm detects the `Downswing & Impact` phase, it triggers an interrupt.
+4. The system pauses the video, renders the 17 keypoints, calculates the 6 joint angles, computes the Posture Score (0-100), and overlays the coaching HUD.
+
+---
+
+## 💻 Quick Start & Commands
+
+**Installation:**
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run
-
+**Running the App:**
 ```bash
-# Easiest way: Open file picker to select a video
+# Easiest way (Opens a file picker)
 python main.py
 
-# Analyze a video directly from CLI
-python main.py --video batting_clip.mp4
-
-# Analyze a single image
-python main.py --image cover_drive.jpg
+# CLI specific paths
+python main.py --video my_video.mp4
+python main.py --image my_image.jpg
 ```
 
-### 3. Controls
-
-| Key       | Action                                      |
-|-----------|---------------------------------------------|
-| `q` / ESC | Quit                                        |
-| `s`       | Save screenshot                             |
-| `p`       | Manual Pause (Instantly analyzes the frame) |
-
-## Project Structure
-
-```text
-tech_s_yolo/
-├── main.py                  # CLI entry point, file picker & video loop
-├── pose_detector.py         # YOLOv8 wrapper & smart striker identification
-├── angle_calculator.py      # Joint angle computation (NumPy trigonometry)
-├── cover_drive_analyzer.py  # Phase detection & biomechanical scoring
-├── visualizer.py            # Skeleton drawing & HUD rendering (OpenCV)
-├── config.py                # Constants & thresholds
-├── requirements.txt         # Dependencies
-└── README.md                # This file
-```
+**In-App Controls:**
+* `p` — Manually pause the video and instantly force a biomechanical analysis on that exact frame.
+* `s` — Save a high-resolution screenshot of the current analysis.
+* `q` or `ESC` — Quit the application.

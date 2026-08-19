@@ -102,6 +102,15 @@ def run_image(path: str, detector, analyzer, viz):
         sys.exit(1)
 
     print(f"[INFO] Analyzing image: {path}")
+    raw_h, raw_w = frame.shape[:2]
+    
+    # Standardize height to 640px to ensure the HUD fonts scale perfectly and look clear
+    TARGET_H = 640
+    scale = TARGET_H / raw_h if raw_h > 0 else 1.0
+    w = int(raw_w * scale)
+    h = TARGET_H
+    
+    frame = cv2.resize(frame, (w, h))
     result = process_frame(frame, detector, analyzer, viz)
 
     # Save output
@@ -131,8 +140,15 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
         sys.exit(1)
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
-    w   = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    h   = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    raw_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    raw_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Standardize height to 640px to ensure the HUD fonts scale perfectly and look clear
+    TARGET_H = 640
+    scale = TARGET_H / raw_h if raw_h > 0 else 1.0
+    w = int(raw_w * scale)
+    h = TARGET_H
+
     hud_w = 320  # must match Visualizer.HUD_WIDTH
     total_w = w + hud_w  # combined frame width (video + HUD panel)
 
@@ -152,12 +168,13 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
 
     # Create the window BEFORE the loop and force it to the front
     win_name = "Posture Expert - Cover Drive Analysis"
-    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win_name, min(total_w, 1280), min(h, 720))  # fit screen nicely
+    # Use KEEPRATIO to completely prevent squashing if manually resized
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    cv2.resizeWindow(win_name, total_w, h)
     cv2.setWindowProperty(win_name, cv2.WND_PROP_TOPMOST, 1)  # bring to front
 
     src_label = "webcam" if isinstance(source, int) else source
-    print(f"[INFO] Processing: {src_label}  |  Resolution: {w}x{h}  |  FPS: {fps:.1f}")
+    print(f"[INFO] Processing: {src_label}  |  Resolution: {w}x{h} (scaled)  |  FPS: {fps:.1f}")
     print("[INFO] Keys:  q/ESC=quit  s=screenshot  p=pause")
 
     paused = False
@@ -172,6 +189,9 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
             if not ret:
                 print("[INFO] End of video.")
                 break
+            
+            # Resize frame to our standard 640p height so fonts aren't squashed
+            frame = cv2.resize(frame, (w, h))
             frame_count += 1
 
             # 1. Prepare clean frame (padded to maintain video writer dimensions)
