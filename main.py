@@ -78,7 +78,7 @@ def process_frame(frame: np.ndarray, detector: PoseDetector,
                   analyzer: CoverDriveAnalyzer, viz: Visualizer) -> np.ndarray:
     """Run the full pipeline on a single frame and return the annotated image."""
     detections = detector.detect(frame)
-    player = detector.get_primary_player(detections)
+    player = detector.get_primary_player(detections, frame.shape)
 
     if player is None:
         # No person detected — show placeholder text
@@ -161,6 +161,8 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
     print("[INFO] Keys:  q/ESC=quit  s=screenshot  p=pause")
 
     paused = False
+    has_auto_paused = False
+    display_frame = None
     frame_count = 0
     t_start = time.time()
 
@@ -172,30 +174,69 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
                 break
             frame_count += 1
 
-            result = process_frame(frame, detector, analyzer, viz)
+            # 1. Prepare clean frame (padded to maintain video writer dimensions)
+            blank_hud = np.zeros((h, hud_w, 3), dtype=np.uint8)
+            blank_hud[:] = (25, 25, 25)
+            cv2.putText(blank_hud, "Analyzing live...", (20, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 100), 1)
+            clean_display = np.hstack([frame, blank_hud])
+
+            # 2. Detect in background to find the batsman on strike
+            detections = detector.detect(frame)
+            player = detector.get_primary_player(detections, frame.shape)
+
+            trigger_pause = False
+            if player is not None:
+                analysis = analyzer.analyze(player["keypoints"])
+                current_phase = analysis.get("phase")
+
+                # Reset tracker if they go back to Stance
+                if current_phase == "Stance":
+                    has_auto_paused = False
+                # If they reach Impact, trigger the analysis freeze-frame
+                elif current_phase == "Downswing & Impact" and not has_auto_paused:
+                    trigger_pause = True
+                    has_auto_paused = True
+
+            if trigger_pause:
+                paused = True
+                display_frame = viz.render(frame.copy(), player, analysis)
+                print("[INFO] Impact detected! Pausing for analysis. Press 'p' to resume.")
+            else:
+                display_frame = clean_display
 
             # FPS counter
             elapsed = time.time() - t_start
             live_fps = frame_count / elapsed if elapsed > 0 else 0
-            cv2.putText(result, f"FPS: {live_fps:.1f}", (10, 30),
+            cv2.putText(display_frame, f"FPS: {live_fps:.1f}", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
 
             if writer:
-                writer.write(result)
+                writer.write(display_frame)
 
-            cv2.imshow(win_name, result)
+            cv2.imshow(win_name, display_frame)
 
         key = cv2.waitKey(1) & 0xFF
         if key in (ord("q"), 27):        # q or ESC
             break
-        elif key == ord("s"):            # screenshot
+        elif key == ord("s") and display_frame is not None:  # screenshot
             ts = time.strftime("%Y%m%d_%H%M%S")
             snap_path = f"screenshot_{ts}.jpg"
-            cv2.imwrite(snap_path, result)
+            cv2.imwrite(snap_path, display_frame)
             print(f"[INFO] Screenshot saved → {snap_path}")
         elif key == ord("p"):            # pause / resume
             paused = not paused
-            print(f"[INFO] {'Paused' if paused else 'Resumed'}")
+            if paused and 'frame' in locals() and frame is not None:
+                # Force analysis display on manual pause!
+                detections = detector.detect(frame)
+                player = detector.get_primary_player(detections, frame.shape)
+                if player:
+                    analysis = analyzer.analyze(player["keypoints"])
+                    display_frame = viz.render(frame.copy(), player, analysis)
+                    cv2.imshow(win_name, display_frame)
+                    print("[INFO] Paused manually. Displaying frame analysis.")
+            else:
+                print("[INFO] Resumed")
 
     cap.release()
     if writer:

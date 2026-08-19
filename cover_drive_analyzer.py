@@ -86,12 +86,17 @@ class CoverDriveAnalyzer:
             if avg_wrist < avg_shoulder - 40:          # wrists above shoulders (y-axis inverted)
                 return PHASE_NAMES[3]                  # Follow-through
 
-        # ── Downswing & Impact: front knee flexed
-        if front_knee is not None and front_knee < 160:
-            # Also check wrists are roughly at torso level
-            if l_wrist_y and l_shoulder_y:
-                if l_wrist_y > l_shoulder_y:           # wrists at or below shoulder
-                    return PHASE_NAMES[2]              # Downswing & Impact
+        front_elbow = angles.get("Front Elbow")
+
+        # ── Downswing & Impact: wrists low AND front elbow extended (or knee bent)
+        # Because batting pads often block the knee/ankle, we use the front elbow as primary.
+        is_wrists_low = (l_wrist_y and l_shoulder_y and l_wrist_y > l_shoulder_y)
+        
+        if is_wrists_low:
+            if front_elbow is not None and front_elbow > 130:
+                return PHASE_NAMES[2]              # Downswing & Impact
+            elif front_knee is not None and front_knee < 165:
+                return PHASE_NAMES[2]              # Downswing & Impact
 
         # ── Backswing & Stride: back elbow tightly flexed
         if back_elbow is not None and back_elbow < 100:

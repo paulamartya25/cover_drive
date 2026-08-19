@@ -65,12 +65,58 @@ class PoseDetector:
 
         return detections
 
-    def get_primary_player(self, detections: list[dict]) -> dict | None:
-        """Return the detection with the largest bounding box (assumed to be
-        the main player closest to camera)."""
+    def get_primary_player(self, detections: list[dict], frame_shape: tuple) -> dict | None:
+        """
+        Return the detection corresponding to the STRIKER batsman.
+        Filters out bowlers (too large/bottom of screen), non-strikers (off-center/bottom),
+        and fielders (too small) using heuristic scoring.
+        """
         if not detections:
             return None
-        return max(detections, key=lambda d: d["bbox_area"])
+            
+        h, w = frame_shape[:2]
+        img_area = h * w
+        
+        best_player = None
+        best_score = -1000.0
+
+        for d in detections:
+            x1, y1, x2, y2, _ = d["bbox"]
+            area = d["bbox_area"]
+            
+            # Reject tiny bounding boxes (fielders in the deep)
+            if area < img_area * 0.003:
+                continue
+                
+            # 1. Centrality: Striker is almost always horizontally centered
+            center_x = (x1 + x2) / 2
+            dist_from_center = abs(center_x - (w / 2)) / (w / 2)
+            centrality_score = 1.0 - dist_from_center  # 1.0 is dead center
+            
+            # Penalize players who are far off-center (like non-strikers)
+            if dist_from_center > 0.3:
+                centrality_score -= 2.0
+            
+            # 2. Distance down the pitch (y2 coordinate)
+            normalized_y2 = y2 / h
+            y2_penalty = 1.0
+            
+            # Bowlers in foreground often have feet completely off the bottom edge
+            if normalized_y2 >= 0.95 and area > img_area * 0.15:
+                y2_penalty = 0.1 
+                
+            # Total score (heavy weight on being horizontally centered)
+            score = (centrality_score * 3.0) + (area / img_area * 1.0) * y2_penalty
+            
+            if score > best_score:
+                best_score = score
+                best_player = d
+
+        # Fallback if heuristics rejected everyone (e.g. extreme zoom)
+        if best_player is None and detections:
+            return max(detections, key=lambda d: d["bbox_area"])
+            
+        return best_player
 
     # ── helpers ───────────────────────────────────────────────
 

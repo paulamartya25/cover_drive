@@ -82,7 +82,7 @@ PAIR_COLORS = {
 }
 
 # ── Detection Settings ────────────────────────────────────────
-CONFIDENCE_THRESHOLD = 0.5      # minimum keypoint confidence to use
+CONFIDENCE_THRESHOLD = 0.35     # lowered from 0.5 to account for batting pads/helmets
 MODEL_NAME = "yolov8n-pose.pt"  # nano model (fast); change to 's'/'m' for accuracy
 INPUT_SIZE = 640                # inference resolution
 

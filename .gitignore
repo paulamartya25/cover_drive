@@ -1,0 +1,19 @@
+# Model weights (auto-downloaded on first run)
+*.pt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Output files
+*_analyzed.*
+screenshot_*.jpg
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
