@@ -64,10 +64,8 @@ class Visualizer:
             cv2.circle(overlay, (cx, cy), 7, (0, 0, 0), -1, cv2.LINE_AA)
             cv2.circle(overlay, (cx, cy), 5, COLORS["keypoint"], -1, cv2.LINE_AA)
 
-            label = KEYPOINT_SHORT.get(i, str(i))
-            cv2.putText(overlay, label, (cx + 10, cy - 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, (255, 255, 255), 1,
-                        cv2.LINE_AA)
+            # We removed the tiny text labels here (like 'RWr') because they clutter 
+            # the screen. The angle labels (drawn later) are much more important.
 
         # Blend overlay
         cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
@@ -105,12 +103,12 @@ class Visualizer:
 
             # Angle label with background
             label = f"{value:.0f}"
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
             lx, ly = cx + 24, cy - 2
             cv2.rectangle(frame, (lx - 2, ly - th - 2), (lx + tw + 2, ly + 3),
                           COLORS["text_bg"], -1)
             cv2.putText(frame, label, (lx, ly),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
 
         # Shoulder line
         sl_val = angles.get("Shoulder Line")
@@ -123,8 +121,8 @@ class Visualizer:
                 mid_x = (ls[0] + rs[0]) // 2
                 mid_y = (ls[1] + rs[1]) // 2
                 label = f"SL {sl_val:.0f}"
-                cv2.putText(frame, label, (mid_x - 15, mid_y - 12),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.38, color, 1, cv2.LINE_AA)
+                cv2.putText(frame, label, (mid_x - 20, mid_y - 12),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
 
         return frame
 
@@ -236,18 +234,18 @@ class Visualizer:
 
         tips = analysis.get("tips", [])
         for tip in tips[:3]:  # max 3 tips
-            cy += 22
+            cy += 24
             # Wrap long text
-            max_chars = 35
+            max_chars = 30
             if len(tip) <= max_chars:
                 cv2.putText(panel, f"- {tip}", (cx, cy),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.33, (180, 210, 255), 1, cv2.LINE_AA)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 210, 255), 1, cv2.LINE_AA)
             else:
                 cv2.putText(panel, f"- {tip[:max_chars]}", (cx, cy),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.33, (180, 210, 255), 1, cv2.LINE_AA)
-                cy += 16
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 210, 255), 1, cv2.LINE_AA)
+                cy += 18
                 cv2.putText(panel, f"  {tip[max_chars:]}", (cx, cy),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.33, (180, 210, 255), 1, cv2.LINE_AA)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180, 210, 255), 1, cv2.LINE_AA)
 
         # ── Legend ──
         legend_y = height - 60
