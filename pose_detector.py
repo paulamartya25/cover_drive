@@ -88,25 +88,38 @@ class PoseDetector:
             if area < img_area * 0.003:
                 continue
                 
-            # 1. Centrality: Striker is almost always horizontally centered
+            # 1. Centrality: Striker is perfectly horizontally centered
             center_x = (x1 + x2) / 2
             dist_from_center = abs(center_x - (w / 2)) / (w / 2)
-            centrality_score = 1.0 - dist_from_center  # 1.0 is dead center
+            centrality_score = 1.0 - dist_from_center
             
-            # Penalize players who are far off-center (like non-strikers)
-            if dist_from_center > 0.3:
-                centrality_score -= 2.0
+            # Wicketkeepers are centered, but often much higher in the frame.
+            # Non-strikers are off-center.
+            if dist_from_center > 0.15:
+                centrality_score -= 10.0
             
-            # 2. Distance down the pitch (y2 coordinate)
-            normalized_y2 = y2 / h
-            y2_penalty = 1.0
+            # 2. Head Position & Bounding Box Position (y1 coordinate)
+            normalized_y1 = y1 / h
+            head_penalty = 0.0
             
-            # Bowlers in foreground often have feet completely off the bottom edge
-            if normalized_y2 >= 0.95 and area > img_area * 0.15:
-                y2_penalty = 0.1 
+            # If their head starts in the bottom half of the screen (Non-striker / Bowler)
+            if normalized_y1 > 0.4:
+                head_penalty -= 10.0
                 
-            # Total score (heavy weight on being horizontally centered)
-            score = (centrality_score * 3.0) + (area / img_area * 1.0) * y2_penalty
+            # If their head is at the absolute top edge of the screen (Wicketkeeper)
+            if normalized_y1 < 0.15:
+                head_penalty -= 10.0
+                
+            # 3. Depth (y2 coordinate)
+            normalized_y2 = y2 / h
+            depth_score = 1.0 - normalized_y2
+            
+            # Penalize absolute foreground objects (bowlers running in)
+            if normalized_y2 >= 0.85:
+                depth_score -= 5.0
+                
+            # The ultimate formula
+            score = (centrality_score * 5.0) + (depth_score * 3.0) + head_penalty
             
             if score > best_score:
                 best_score = score
