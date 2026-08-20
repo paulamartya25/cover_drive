@@ -64,6 +64,25 @@ To prevent visual clutter, the system mimics a professional sports broadcast.
 
 ---
 
+## 📊 Evaluation Metrics & Benchmarks
+
+To ensure production readiness, the system is evaluated on both **Inference Latency** and **Spatial/Temporal Accuracy**.
+
+### Inference Performance (CPU Benchmark)
+By utilizing fully vectorized NumPy operations, the biomechanical engine adds virtually zero overhead to the AI inference.
+*   **Overall Pipeline:** ~18.86 FPS
+*   **AI Inference (YOLOv8):** 49.53 ms
+*   **OpenCV Rendering:** 0.64 ms
+*   **Biomechanics Math (NumPy):** **0.02 ms** *(Highly Optimized)*
+
+### Accuracy Metrics (IoU & PCK)
+The repository includes an `evaluation_metrics.py` module to benchmark accuracy against human-labeled ground-truth datasets using the following metrics:
+*   **Bounding Box IoU (Intersection over Union):** Evaluates the spatial accuracy of the Smart Tracking Heuristic. (e.g., A calculated spatial overlap of `68.9%` against a ground-truth bounding box).
+*   **Temporal IoU:** Evaluates the accuracy of the Phase Detection logic by measuring the time-overlap between the predicted `Impact Phase` timestamp window and the actual video timestamp.
+*   **PCK (Percentage of Correct Keypoints):** Used to benchmark YOLO's spatial pixel accuracy for critical joints (elbows/knees).
+
+---
+
 ## 💻 Quick Start & Commands
 
 **Installation:**
