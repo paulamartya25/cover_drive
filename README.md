@@ -21,6 +21,58 @@ The system is highly robust across various broadcast angles, camera zooms, and b
 
 This project was engineered to solve three major challenges in sports computer vision: **Multi-person disambiguation** (finding the batsman among bowlers/fielders), **Occlusion handling** (dealing with batting pads blocking lower-body keypoints), and **Real-time processing** (running frame-by-frame analysis without lag).
 
+### 🏗️ System Architecture Flowchart
+
+```mermaid
+graph TD
+    %% Define Styles
+    classDef input fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#fff;
+    classDef ai fill:#8e44ad,stroke:#9b59b6,stroke-width:2px,color:#fff;
+    classDef logic fill:#2980b9,stroke:#3498db,stroke-width:2px,color:#fff;
+    classDef math fill:#d35400,stroke:#e67e22,stroke-width:2px,color:#fff;
+    classDef ui fill:#27ae60,stroke:#2ecc71,stroke-width:2px,color:#fff;
+
+    A([Start: Video / Camera Feed]) ::: input --> B[OpenCV: Standardize Frame Height to 640px] ::: logic
+    
+    subgraph AI Engine
+        B --> C{YOLOv8-Pose Inference} ::: ai
+        C -->|Extract| D[Bounding Boxes x N] ::: ai
+        C -->|Extract| E[17 COCO Keypoints x N] ::: ai
+    end
+
+    subgraph Smart Tracking Heuristic
+        D --> F[Filter out microscopic boxes] ::: logic
+        F --> G[Calculate Centrality Score] ::: logic
+        G --> H["Apply Head Position Penalty (y1 > 0.4)"] ::: logic
+        H --> I([Lock onto Target Striker]) ::: logic
+    end
+
+    subgraph Biomechanics Math Engine
+        E --> J
+        I --> J[Filter Keypoints for Striker] ::: math
+        J --> K["NumPy arctan2() Vectorized Math"] ::: math
+        K --> L[Calculate 6 Joint Angles] ::: math
+    end
+
+    subgraph Phase Detection State Machine
+        L --> M{Are Wrists Dropping & Elbow > 130°?} ::: logic
+        M -->|No| N[Output Clean Frame] ::: ui
+        M -->|Yes: Impact Phase| O[Trigger Freeze-Frame Analysis] ::: logic
+    end
+
+    subgraph UI & Rendering Engine
+        O --> P[Compare Angles to Ideal Biomechanics] ::: math
+        P --> Q[Generate Posture Score 0-100] ::: math
+        Q --> R[Generate Coaching Tips] ::: logic
+        R --> S["Create HUD Canvas (np.zeros)"] ::: ui
+        S --> T["Draw Skeleton & Arcs (cv2)"] ::: ui
+        T --> U["Stitch Video & HUD (np.hstack)"] ::: ui
+    end
+
+    U --> V([End: Display Final Frame]) ::: input
+    N --> V
+```
+
 ### Core Libraries & Architectural Justification
 
 #### 1. Pose Estimation: Ultralytics YOLOv8-Pose
