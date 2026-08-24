@@ -84,41 +84,40 @@ class PoseDetector:
             x1, y1, x2, y2, _ = d["bbox"]
             area = d["bbox_area"]
             
-            # Reject tiny bounding boxes (fielders in the deep)
-            if area < img_area * 0.003:
+            # Reject tiny bounding boxes (fielders/wicketkeeper far from camera)
+            # Raised from 0.003 to 0.015 — must be at least 1.5% of frame area
+            if area < img_area * 0.015:
                 continue
                 
-            # 1. Centrality: Striker is perfectly horizontally centered
+            # 1. Centrality: Striker is horizontally centered
             center_x = (x1 + x2) / 2
             dist_from_center = abs(center_x - (w / 2)) / (w / 2)
             centrality_score = 1.0 - dist_from_center
             
-            # Wicketkeepers are centered, but often much higher in the frame.
-            # Non-strikers are off-center.
-            if dist_from_center > 0.15:
+            if dist_from_center > 0.20:
                 centrality_score -= 10.0
             
-            # 2. Head Position & Bounding Box Position (y1 coordinate)
+            # 2. Head Position (y1 coordinate)
             normalized_y1 = y1 / h
             head_penalty = 0.0
             
-            # If their head starts in the bottom half of the screen (Non-striker / Bowler)
+            # Non-striker / Bowler: head in bottom half of screen
             if normalized_y1 > 0.4:
                 head_penalty -= 10.0
                 
-            # If their head is at the absolute top edge of the screen (Wicketkeeper)
-            if normalized_y1 < 0.15:
+            # Wicketkeeper: head at very top edge (they crouch behind stumps)
+            if normalized_y1 < 0.22:
                 head_penalty -= 10.0
                 
-            # 3. Depth (y2 coordinate)
+            # 3. Depth (y2 coordinate — feet position)
             normalized_y2 = y2 / h
             depth_score = 1.0 - normalized_y2
             
-            # Penalize absolute foreground objects (bowlers running in)
+            # Bowler running in from extreme foreground
             if normalized_y2 >= 0.85:
                 depth_score -= 5.0
                 
-            # The ultimate formula
+            # Final heuristic formula
             score = (centrality_score * 5.0) + (depth_score * 3.0) + head_penalty
             
             if score > best_score:
