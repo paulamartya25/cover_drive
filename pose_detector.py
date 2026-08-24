@@ -77,15 +77,15 @@ class PoseDetector:
         h, w = frame_shape[:2]
         img_area = h * w
         
-        best_player = None
-        best_score = -1000.0
+        best_player       = None
+        best_score        = -1000.0
+        best_head_penalty = -10.0   # assume not locked until proven otherwise
 
         for d in detections:
             x1, y1, x2, y2, _ = d["bbox"]
             area = d["bbox_area"]
             
             # Reject tiny bounding boxes (fielders/wicketkeeper far from camera)
-            # Raised from 0.003 to 0.015 — must be at least 1.5% of frame area
             if area < img_area * 0.015:
                 continue
                 
@@ -93,27 +93,24 @@ class PoseDetector:
             center_x = (x1 + x2) / 2
             dist_from_center = abs(center_x - (w / 2)) / (w / 2)
             centrality_score = 1.0 - dist_from_center
-            
             if dist_from_center > 0.20:
                 centrality_score -= 10.0
             
             # 2. Head Position (y1 coordinate)
             normalized_y1 = y1 / h
-            head_penalty = 0.0
+            head_penalty  = 0.0
             
             # Non-striker / Bowler: head in bottom half of screen
             if normalized_y1 > 0.4:
                 head_penalty -= 10.0
                 
-            # Wicketkeeper: head at very top edge (they crouch behind stumps)
+            # Wicketkeeper: head at very top edge
             if normalized_y1 < 0.22:
                 head_penalty -= 10.0
                 
-            # 3. Depth (y2 coordinate — feet position)
+            # 3. Depth (y2 — feet position)
             normalized_y2 = y2 / h
-            depth_score = 1.0 - normalized_y2
-            
-            # Bowler running in from extreme foreground
+            depth_score   = 1.0 - normalized_y2
             if normalized_y2 >= 0.85:
                 depth_score -= 5.0
                 
@@ -121,20 +118,25 @@ class PoseDetector:
             score = (centrality_score * 5.0) + (depth_score * 3.0) + head_penalty
             
             if score > best_score:
-                best_score = score
-                best_player = d
+                best_score        = score
+                best_player       = d
+                best_head_penalty = head_penalty   # track separately
 
-        # Fallback if heuristics rejected everyone (e.g. extreme zoom)
+        # Fallback if heuristics rejected everyone
         if best_player is None and detections:
-            best_player = max(detections, key=lambda d: d["bbox_area"])
-            best_score  = -999.0   # very low — signal we are NOT confident
+            best_player       = max(detections, key=lambda d: d["bbox_area"])
+            best_score        = -999.0
+            best_head_penalty = -10.0   # not confident
 
-        # Attach confidence flag so the analyzer/visualizer can suppress
-        # shot classification when we are not truly locked on the striker.
-        # A score >= 1.0 means centrality + depth worked cleanly (no penalties fired).
+        # ── Confidence flag ────────────────────────────────────
+        # locked_on_striker = True when the head is in the STRIKER ZONE
+        # (y1 between 0.22 and 0.40).  This is the definitive test.
+        # We do NOT use best_score because the centrality penalty can
+        # incorrectly fire when a batsman is slightly off-center, which
+        # would suppress the shot name even for a perfect detection.
         if best_player is not None:
             best_player["striker_confidence"] = best_score
-            best_player["locked_on_striker"]  = best_score >= 1.0
+            best_player["locked_on_striker"]  = (best_head_penalty == 0.0)
 
         return best_player
 
