@@ -187,6 +187,7 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
     display_frame = None
     frame_count = 0
     t_start = time.time()
+    viz3d = Visualizer3D()   # ONE persistent 3D window for the whole session
 
     while True:
         if not paused:
@@ -226,9 +227,8 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
             if trigger_pause:
                 paused = True
                 display_frame = viz.render(frame.copy(), player, analysis)
-                # ── Trigger 3D Model on auto-pause ──
+                # ── Update the single persistent 3D window ──
                 try:
-                    viz3d = Visualizer3D()
                     viz3d.render(
                         player["keypoints"],
                         analysis.get("angles", {}),
@@ -270,9 +270,8 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
                     analysis = analyzer.analyze(player["keypoints"])
                     display_frame = viz.render(frame.copy(), player, analysis)
                     cv2.imshow(win_name, display_frame)
-                    # ── Trigger 3D Model on manual pause ──
+                    # ── Update the single persistent 3D window ──
                     try:
-                        viz3d = Visualizer3D()
                         viz3d.render(
                             player["keypoints"],
                             analysis.get("angles", {}),
