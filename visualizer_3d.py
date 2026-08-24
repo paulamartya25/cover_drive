@@ -128,10 +128,10 @@ class Visualizer3D:
 
         # ── Convert to OpenCV image ───────────────────────────
         fig.canvas.draw()
-        buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
         w, h = fig.canvas.get_width_height()
-        img_rgb = buf.reshape(h, w, 3)
-        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        img_rgba = buf.reshape(h, w, 4)
+        img_bgr  = cv2.cvtColor(img_rgba, cv2.COLOR_RGBA2BGR)
         plt.close(fig)   # free memory immediately
 
         # ── Display in resizable OpenCV window ────────────────
