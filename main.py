@@ -344,5 +344,8 @@ def main():
         run_video(args.video, detector, analyzer, viz, save_path=args.save)
 
 
+import multiprocessing
+
 if __name__ == "__main__":
+    multiprocessing.freeze_support()   # Required for Windows multiprocessing
     main()

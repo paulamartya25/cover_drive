@@ -1,21 +1,24 @@
 # ───────────────────────────────────────────────────────────────
-# visualizer_3d.py  –  Interactive 3D Stick Figure (Separate Thread)
+# visualizer_3d.py  –  Interactive 3D Stick Figure (Separate Process)
 # ───────────────────────────────────────────────────────────────
 """
-Renders the 3D posture model in a SEPARATE DAEMON THREAD using
-matplotlib TkAgg backend. This gives a fully interactive, rotatable
-3D window while the OpenCV video loop continues uninterrupted.
+Uses multiprocessing.Process instead of threading.Thread.
 
-The previous approach (Agg → OpenCV image) was a static screenshot.
-This approach gives a live, draggable, zoomable 3D window.
+WHY:
+  Tkinter (and matplotlib TkAgg) MUST run on the MAIN thread.
+  On Windows, threading does NOT give you a new main thread —
+  it gives you a secondary thread, which crashes Tkinter.
+
+  multiprocessing.Process spawns a brand new Python process.
+  That process has its OWN main thread where Tkinter runs perfectly.
+
+RESULT:
+  - Fully interactive, rotatable, zoomable 3D window
+  - OpenCV video loop runs at full speed, completely unaffected
 """
 
-import threading
+import multiprocessing
 import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-
 from config import CONFIDENCE_THRESHOLD
 
 
@@ -28,8 +31,7 @@ KEYPOINT_SIDES = {
     13: "front", 14: "back",
     15: "front", 16: "back",
 }
-DEPTH_MAP = {"front": -0.2, "center": 0.0, "back": 0.2}
-
+DEPTH_MAP   = {"front": -0.2, "center": 0.0, "back": 0.2}
 SKELETON_3D = [
     (5, 6),
     (5, 7), (7, 9),
@@ -38,7 +40,6 @@ SKELETON_3D = [
     (11, 13), (13, 15),
     (12, 14), (14, 16),
 ]
-
 SEGMENT_COLORS = {
     (5, 6):   "#00FFFF",
     (5, 7):   "#00FF80", (7, 9):   "#00FF80",
@@ -49,48 +50,46 @@ SEGMENT_COLORS = {
 }
 
 
-def _build_pts(keypoints):
-    """Convert YOLO 2D keypoints to estimated 3D coordinates."""
+def _draw_figure(keypoints_list, angles, score, shot_type):
+    """
+    Runs in a SEPARATE PROCESS with its own main thread.
+    TkAgg/Tkinter works perfectly here.
+    """
+    import matplotlib
+    matplotlib.use("TkAgg")
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+    keypoints = np.array(keypoints_list)
+
+    # Build 3D points from keypoints
     pts = {}
-    for idx in range(17):
+    for idx in range(min(17, len(keypoints))):
         if keypoints[idx][2] < CONFIDENCE_THRESHOLD:
             continue
         px = float(keypoints[idx][0])
         py = float(keypoints[idx][1])
         pz = DEPTH_MAP.get(KEYPOINT_SIDES.get(idx, "center"), 0.0)
         pts[idx] = (px, py, pz)
-    return pts
 
+    if len(pts) < 4:
+        return
 
-def _normalise(pts):
-    """Centre and scale the skeleton to fit a unit cube."""
+    # Normalise skeleton to fit unit cube
     xs   = [p[0] for p in pts.values()]
     ys   = [p[1] for p in pts.values()]
     cx_  = np.mean(xs)
     cy_  = np.mean(ys)
     span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
 
-    def _n(p):
+    def norm(p):
         return ((p[0] - cx_) / span,
-                -(p[1] - cy_) / span,   # flip Y so head is up
+                -(p[1] - cy_) / span,
                 p[2])
-    return {k: _n(v) for k, v in pts.items()}
 
+    pts_n = {k: norm(v) for k, v in pts.items()}
 
-def _draw_figure(keypoints, angles, score, shot_type):
-    """
-    Runs inside a daemon thread.
-    Creates a full interactive TkAgg matplotlib window the user can rotate.
-    """
-    # Must set backend HERE inside the thread to avoid conflicts
-    matplotlib.use("TkAgg")
-
-    pts = _build_pts(keypoints)
-    if len(pts) < 4:
-        return
-
-    pts_n = _normalise(pts)
-
+    # Draw the figure
     fig = plt.figure(figsize=(7, 8), facecolor="#1a1a2e")
     ax  = fig.add_subplot(111, projection="3d", facecolor="#0d1117")
 
@@ -107,16 +106,16 @@ def _draw_figure(keypoints, angles, score, shot_type):
         col = SEGMENT_COLORS.get((a, b), SEGMENT_COLORS.get((b, a), "#FFFFFF"))
         ax.plot(
             [pa[0], pb[0]],
-            [pa[2], pb[2]],   # Z as side-axis
-            [pa[1], pb[1]],   # Y as vertical
+            [pa[2], pb[2]],
+            [pa[1], pb[1]],
             color=col, linewidth=3.5, solid_capstyle="round"
         )
 
     # Draw joint dots
     for idx, (x, y, z) in pts_n.items():
-        ax.scatter(x, z, y, color="#FFFF00", s=50, zorder=5, depthshade=False)
+        ax.scatter(x, z, y, color="#FFFF00", s=55, zorder=5, depthshade=False)
 
-    # Key angle annotations
+    # Annotate key joint angles
     annotations = {
         7:  ("F.Elbow", angles.get("Front Elbow")),
         8:  ("B.Elbow", angles.get("Back Elbow")),
@@ -130,7 +129,7 @@ def _draw_figure(keypoints, angles, score, shot_type):
                     f"{label}\n{val:.0f}°",
                     color="white", fontsize=8, fontweight="bold")
 
-    # Styling
+    # Style
     for axis in [ax.xaxis, ax.yaxis, ax.zaxis]:
         axis.pane.fill = False
         axis.set_tick_params(colors="#555555", labelsize=7)
@@ -138,31 +137,31 @@ def _draw_figure(keypoints, angles, score, shot_type):
     ax.set_ylabel("Depth",               color="#666666", fontsize=8)
     ax.set_zlabel("↑ Up  |  Down ↓",    color="#666666", fontsize=8)
     ax.grid(True, color="#223344", linewidth=0.4)
-
-    # Start with a good side-on cricket view
     ax.view_init(elev=12, azim=-75)
 
-    # Hint text
     fig.text(0.5, 0.01,
              "🖱️  Left-drag to rotate  |  Scroll to zoom  |  Right-drag to pan",
              ha="center", color="#888888", fontsize=9)
 
     plt.tight_layout(pad=1.5)
-    plt.show()   # blocks inside the thread only — OpenCV loop is unaffected
+    plt.show()
 
 
 class Visualizer3D:
-    """Spawns an interactive 3D viewer in a daemon thread."""
+    """Spawns an interactive 3D viewer in a completely separate process."""
 
     def render(self, keypoints: np.ndarray, angles: dict,
                score: int, shot_type: str = ""):
         """
-        Opens the interactive 3D window in a background thread.
+        Opens the interactive 3D window in a new process.
         The main OpenCV loop continues at full speed.
+        Keypoints are converted to a plain list for safe inter-process transfer.
         """
-        t = threading.Thread(
+        kp_list = keypoints.tolist()   # numpy arrays can't be pickled directly on Windows
+
+        p = multiprocessing.Process(
             target=_draw_figure,
-            args=(keypoints, angles, score, shot_type),
-            daemon=True   # thread dies automatically when main program exits
+            args=(kp_list, angles, score, shot_type),
+            daemon=True
         )
-        t.start()
+        p.start()
