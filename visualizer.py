@@ -167,6 +167,29 @@ class Visualizer:
         cv2.putText(panel, phase, (cx, cy),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
 
+        # ── Shot Type ──
+        shot_type   = analysis.get("shot_type", "")
+        height_cat  = analysis.get("height_category", "")
+        if shot_type:
+            cy += 22
+            cv2.putText(panel, "SHOT TYPE", (cx, cy),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 120, 120), 1, cv2.LINE_AA)
+            cy += 20
+            cv2.putText(panel, shot_type, (cx, cy),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 180, 0), 2, cv2.LINE_AA)
+
+        # ── Height Category badge ──
+        if height_cat:
+            badge_colors = {
+                "TALL":   (0, 200, 100),
+                "MEDIUM": (0, 180, 255),
+                "SHORT":  (200, 100, 255),
+            }
+            cy += 20
+            badge_col = badge_colors.get(height_cat, (180, 180, 180))
+            cv2.putText(panel, f"BUILD: {height_cat}", (cx, cy),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, badge_col, 1, cv2.LINE_AA)
+
         # ── Score ──
         cy += 35
         score = analysis.get("score", 0)

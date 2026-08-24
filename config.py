@@ -88,15 +88,90 @@ INPUT_SIZE = 640                # inference resolution
 
 # ── Cricket Cover Drive — Ideal Angle Ranges (degrees) ────────
 # Format: (min_ideal, max_ideal, min_acceptable, max_acceptable)
+# These are the MEDIUM height defaults (used as base)
 IDEAL_ANGLES = {
-    "Front Elbow":    (140, 180, 120, 180),  # near-full extension at impact
-    "Back Elbow":     (60, 110, 40, 130),    # compact and loaded
-    "Front Knee":     (130, 165, 110, 175),  # flexed for stability (~146°)
-    "Back Knee":      (140, 180, 120, 180),  # relatively straight on pivot
-    "Hip Angle":      (80, 140, 60, 160),    # trunk rotation
-    "Shoulder Line":  (0, 35, 0, 50),        # degrees from horizontal
+    "Front Elbow":    (140, 180, 120, 180),
+    "Back Elbow":     (60, 110, 40, 130),
+    "Front Knee":     (130, 165, 110, 175),
+    "Back Knee":      (140, 180, 120, 180),
+    "Hip Angle":      (80, 140, 60, 160),
+    "Shoulder Line":  (0, 35, 0, 50),
+}
+
+# ── Height-Adaptive Angle Thresholds ──────────────────────────
+# Taller players have a naturally wider stance → more extended knees
+# Shorter players crouch more → more flexed knees
+IDEAL_ANGLES_TALL = {
+    "Front Elbow":    (140, 180, 120, 180),
+    "Back Elbow":     (60, 110, 40, 130),
+    "Front Knee":     (140, 175, 120, 180),   # more extended for tall players
+    "Back Knee":      (150, 180, 130, 180),
+    "Hip Angle":      (90, 150, 70, 165),
+    "Shoulder Line":  (0, 30, 0, 45),
+}
+
+IDEAL_ANGLES_MEDIUM = IDEAL_ANGLES  # same as the base
+
+IDEAL_ANGLES_SHORT = {
+    "Front Elbow":    (140, 180, 120, 180),
+    "Back Elbow":     (60, 110, 40, 130),
+    "Front Knee":     (115, 155, 100, 170),   # more flexed for shorter players
+    "Back Knee":      (125, 165, 110, 175),
+    "Hip Angle":      (70, 130, 50, 150),
+    "Shoulder Line":  (0, 40, 0, 55),
+}
+
+HEIGHT_ANGLE_MAP = {
+    "TALL":   IDEAL_ANGLES_TALL,
+    "MEDIUM": IDEAL_ANGLES_MEDIUM,
+    "SHORT":  IDEAL_ANGLES_SHORT,
+}
+
+# ── Generalized Shot Quality Formula ──────────────────────────
+# Each joint has an "ideal center" angle and a "sigma" (tolerance in degrees).
+# Score per joint = exp(-0.5 * ((angle - center) / sigma)^2) * 100
+# This is a Gaussian scoring function — it gives 100% at perfect form
+# and drops smoothly as the angle deviates, working for any player height.
+JOINT_QUALITY_PARAMS = {
+    "Front Elbow":   {"center": 155, "sigma": 20},
+    "Back Elbow":    {"center": 85,  "sigma": 22},
+    "Front Knee":    {"center": 145, "sigma": 22},
+    "Back Knee":     {"center": 160, "sigma": 22},
+    "Hip Angle":     {"center": 110, "sigma": 28},
+    "Shoulder Line": {"center": 15,  "sigma": 18},
+}
+
+# Height-based center adjustments (added to JOINT_QUALITY_PARAMS centers)
+HEIGHT_QUALITY_ADJUSTMENTS = {
+    "TALL":   {"Front Knee": +10, "Back Knee": +10, "Hip Angle": +5},
+    "MEDIUM": {},  # no adjustment
+    "SHORT":  {"Front Knee": -12, "Back Knee": -12, "Hip Angle": -8},
+}
+
+# ── Shot Classification Signatures ────────────────────────────
+# Each shot is defined by angle range rules.
+# Format: {angle_name: (min, max)} — all rules must match for the shot.
+SHOT_SIGNATURES = {
+    "Cover Drive": {
+        "Front Elbow":  (130, 180),
+        "Front Knee":   (115, 170),
+        "Shoulder Line":(0, 45),
+    },
+    "Pull Shot": {
+        "Front Elbow":  (90, 160),
+        "Shoulder Line":(30, 90),
+        "Hip Angle":    (60, 130),
+    },
+    "Sweep Shot": {
+        "Front Knee":   (70, 115),   # extreme knee bend
+        "Hip Angle":    (50, 110),
+    },
+    "Defensive Push": {
+        "Front Elbow":  (90, 140),   # arm compact
+        "Front Knee":   (155, 180),  # nearly straight — minimal footwork
+    },
 }
 
 # ── Cover Drive Phase Thresholds ──────────────────────────────
-# Used by the analyzer to classify the current phase
 PHASE_NAMES = ["Stance", "Backswing & Stride", "Downswing & Impact", "Follow-through"]
+

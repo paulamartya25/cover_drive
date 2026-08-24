@@ -26,6 +26,7 @@ import numpy as np
 from pose_detector import PoseDetector
 from cover_drive_analyzer import CoverDriveAnalyzer
 from visualizer import Visualizer
+from visualizer_3d import Visualizer3D
 
 
 # ── File picker (tkinter) ─────────────────────────────────────
@@ -221,6 +222,17 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
             if trigger_pause:
                 paused = True
                 display_frame = viz.render(frame.copy(), player, analysis)
+                # ── Trigger 3D Model on auto-pause ──
+                try:
+                    viz3d = Visualizer3D()
+                    viz3d.render(
+                        player["keypoints"],
+                        analysis.get("angles", {}),
+                        analysis.get("score", 0),
+                        analysis.get("shot_type", ""),
+                    )
+                except Exception as e:
+                    print(f"[3D] Could not render 3D model: {e}")
                 print("[INFO] Impact detected! Pausing for analysis. Press 'p' to resume.")
             else:
                 display_frame = clean_display
@@ -254,7 +266,18 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
                     analysis = analyzer.analyze(player["keypoints"])
                     display_frame = viz.render(frame.copy(), player, analysis)
                     cv2.imshow(win_name, display_frame)
-                    print("[INFO] Paused manually. Displaying frame analysis.")
+                    # ── Trigger 3D Model on manual pause ──
+                    try:
+                        viz3d = Visualizer3D()
+                        viz3d.render(
+                            player["keypoints"],
+                            analysis.get("angles", {}),
+                            analysis.get("score", 0),
+                            analysis.get("shot_type", ""),
+                        )
+                    except Exception as e:
+                        print(f"[3D] Could not render 3D model: {e}")
+                    print("[INFO] Paused manually. Displaying frame analysis + 3D model.")
             else:
                 print("[INFO] Resumed")
 
