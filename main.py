@@ -141,6 +141,10 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
         sys.exit(1)
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    # Compute how many ms to wait per frame to match original video speed.
+    # e.g. 30 FPS → wait 33ms per frame. Max 33ms so we never go slower than 30 FPS.
+    frame_delay_ms = max(1, int(1000 / fps))
+
     raw_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     raw_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
@@ -248,7 +252,7 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
 
             cv2.imshow(win_name, display_frame)
 
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(frame_delay_ms) & 0xFF
         if key in (ord("q"), 27):        # q or ESC
             break
         elif key == ord("s") and display_frame is not None:  # screenshot
