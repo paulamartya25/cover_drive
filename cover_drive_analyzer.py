@@ -39,13 +39,18 @@ class CoverDriveAnalyzer:
 
     # ── Main Entry ────────────────────────────────────────────
 
-    def analyze(self, keypoints: np.ndarray) -> dict:
+    def analyze(self, keypoints: np.ndarray, player_meta: dict = None) -> dict:
         """
         Full analysis pipeline for one frame.
 
+        Args:
+            keypoints:   (17, 3) YOLO keypoints.
+            player_meta: the full player dict from PoseDetector (optional).
+                         Used to read locked_on_striker flag.
+
         Returns dict with keys:
             angles, phase, raw_score, score (smoothed), ratings,
-            tips, shot_type, height_category
+            tips, shot_type, height_category, locked_on_striker
         """
         # Step 1: Estimate player height for adaptive thresholds
         height_cat  = estimate_height_category(keypoints)
@@ -67,8 +72,9 @@ class CoverDriveAnalyzer:
         self._score_queue.append(raw_score)
         smooth_score = int(round(sum(self._score_queue) / len(self._score_queue)))
 
-        # Step 7: Shot classification
-        shot_type = self._classify_shot(angles)
+        # Step 7: Shot classification — only when truly locked on striker
+        locked = player_meta.get("locked_on_striker", True) if player_meta else True
+        shot_type = self._classify_shot(angles) if locked else ""
 
         # Step 8: Coaching tips
         tips = self._generate_tips(angles, ratings, phase)
@@ -200,20 +206,28 @@ class CoverDriveAnalyzer:
     def _classify_shot(angles: dict) -> str:
         """
         Match observed angles against known shot signatures.
-        A shot is classified when ALL its defined rules match.
-        Priority order matters — Cover Drive is checked first.
-        Returns the shot name or "Unknown Shot".
+        Uses MAJORITY matching: at least 2 rules must match.
+        This handles occluded keypoints gracefully — if one joint
+        is hidden, the other two still identify the shot.
+        Returns the shot name or "" if nothing matches confidently.
         """
+        best_shot     = ""
+        best_matches  = 0
+
         for shot_name, rules in SHOT_SIGNATURES.items():
-            matched = True
+            matched = 0
+            total   = len(rules)
             for angle_name, (lo, hi) in rules.items():
                 val = angles.get(angle_name)
-                if val is None or not (lo <= val <= hi):
-                    matched = False
-                    break
-            if matched:
-                return shot_name
-        return "Unknown Shot"
+                if val is not None and lo <= val <= hi:
+                    matched += 1
+            # Require at least 2 matches (or all if only 2 rules exist)
+            min_required = min(2, total)
+            if matched >= min_required and matched > best_matches:
+                best_matches = matched
+                best_shot    = shot_name
+
+        return best_shot   # empty string "" if no shot matched confidently
 
     # ── Coaching Tips ─────────────────────────────────────────
 

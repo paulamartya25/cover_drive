@@ -149,26 +149,27 @@ HEIGHT_QUALITY_ADJUSTMENTS = {
 }
 
 # ── Shot Classification Signatures ────────────────────────────
-# Each shot is defined by angle range rules.
-# Format: {angle_name: (min, max)} — all rules must match for the shot.
+# Matching rule: at least 2 out of N rules must match for the shot to be classified.
+# This makes classification robust to missing/occluded keypoints.
+# Priority order: Cover Drive → Pull Shot → Sweep Shot → Defensive Push
 SHOT_SIGNATURES = {
     "Cover Drive": {
-        "Front Elbow":  (130, 180),
-        "Front Knee":   (115, 170),
-        "Shoulder Line":(0, 45),
+        "Front Elbow":  (125, 180),
+        "Front Knee":   (110, 175),
+        "Shoulder Line":(0, 50),
     },
     "Pull Shot": {
-        "Front Elbow":  (90, 160),
-        "Shoulder Line":(30, 90),
-        "Hip Angle":    (60, 130),
+        "Front Elbow":  (85, 165),
+        "Shoulder Line":(25, 90),
+        "Hip Angle":    (55, 135),
     },
     "Sweep Shot": {
-        "Front Knee":   (70, 115),   # extreme knee bend
-        "Hip Angle":    (50, 110),
+        "Front Knee":   (60, 120),     # extreme knee bend
+        "Hip Angle":    (45, 125),     # widened range
     },
     "Defensive Push": {
-        "Front Elbow":  (90, 140),   # arm compact
-        "Front Knee":   (155, 180),  # nearly straight — minimal footwork
+        "Front Elbow":  (85, 145),
+        "Front Knee":   (150, 180),
     },
 }
 

@@ -126,8 +126,16 @@ class PoseDetector:
 
         # Fallback if heuristics rejected everyone (e.g. extreme zoom)
         if best_player is None and detections:
-            return max(detections, key=lambda d: d["bbox_area"])
-            
+            best_player = max(detections, key=lambda d: d["bbox_area"])
+            best_score  = -999.0   # very low — signal we are NOT confident
+
+        # Attach confidence flag so the analyzer/visualizer can suppress
+        # shot classification when we are not truly locked on the striker.
+        # A score >= 1.0 means centrality + depth worked cleanly (no penalties fired).
+        if best_player is not None:
+            best_player["striker_confidence"] = best_score
+            best_player["locked_on_striker"]  = best_score >= 1.0
+
         return best_player
 
     # ── helpers ───────────────────────────────────────────────

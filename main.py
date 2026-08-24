@@ -88,7 +88,7 @@ def process_frame(frame: np.ndarray, detector: PoseDetector,
                     (0, 0, 255), 2, cv2.LINE_AA)
         return frame
 
-    analysis = analyzer.analyze(player["keypoints"])
+    analysis = analyzer.analyze(player["keypoints"], player_meta=player)
     frame = viz.render(frame, player, analysis)
     return frame
 
@@ -213,7 +213,7 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
 
             trigger_pause = False
             if player is not None:
-                analysis = analyzer.analyze(player["keypoints"])
+                analysis = analyzer.analyze(player["keypoints"], player_meta=player)
                 current_phase = analysis.get("phase")
 
                 # Reset tracker if they go back to Stance
@@ -267,7 +267,7 @@ def run_video(source, detector, analyzer, viz, save_path: str = None):
                 detections = detector.detect(frame)
                 player = detector.get_primary_player(detections, frame.shape)
                 if player:
-                    analysis = analyzer.analyze(player["keypoints"])
+                    analysis = analyzer.analyze(player["keypoints"], player_meta=player)
                     display_frame = viz.render(frame.copy(), player, analysis)
                     cv2.imshow(win_name, display_frame)
                     # ── Update the single persistent 3D window ──
