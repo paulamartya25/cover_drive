@@ -20,21 +20,143 @@ class Visualizer:
 
     HUD_WIDTH = 320  # width of the side panel in pixels
 
+    # ── Limb width fractions (relative to player bounding-box height) ─────────
+    # Each tuple → (a, b) keypoint pair: fraction of player height used as width
+    _LIMB_WIDTHS = {
+        (5,  6): 0.11,   # shoulder girdle
+        (5,  7): 0.055,  # L upper arm
+        (7,  9): 0.040,  # L forearm
+        (6,  8): 0.055,  # R upper arm
+        (8, 10): 0.040,  # R forearm
+        (5, 11): 0.090,  # L torso side  (drawn separately as quad, but kept for fallback)
+        (6, 12): 0.090,  # R torso side
+        (11,12): 0.110,  # hip girdle
+        (11,13): 0.075,  # L thigh
+        (13,15): 0.055,  # L shin
+        (12,14): 0.075,  # R thigh
+        (14,16): 0.055,  # R shin
+    }
+    # Face links are drawn as thin lines only (not filled segments)
+    _FACE_PAIRS = {(0,1),(0,2),(1,3),(2,4)}
+
     # ── skeleton + keypoints ──────────────────────────────────
 
     def draw_skeleton(self, frame: np.ndarray, keypoints: np.ndarray,
                       bbox: tuple = None) -> np.ndarray:
         """
-        Draw skeleton lines + keypoint dots on the frame.
+        Draw a human-figure skeleton using filled body-segment polygons.
+
+        Each limb (upper arm, forearm, thigh, shin, torso) is rendered as a
+        tapered filled trapezoid — wider at the body end, narrower at the
+        extremity — giving a realistic silhouette instead of a stick figure.
+
+        Rendering order (back-to-front):
+          1. Filled torso quadrilateral
+          2. Filled limb trapezoids (thighs, shins, arms)
+          3. Shoulder & hip girdle bars
+          4. Head ellipse
+          5. Joint circles (white with dark outline)
+          6. Bounding box + label
 
         Args:
             frame:     BGR image (mutated in-place and returned).
-            keypoints: (17, 3) array.
-            bbox:      optional (x1,y1,x2,y2,conf) bounding box.
+            keypoints: (17, 3) array — x, y, confidence per keypoint.
+            bbox:      optional (x1, y1, x2, y2, conf) bounding box.
         """
+        # ── Estimate player scale from bounding box ────────────────
+        if bbox is not None:
+            x1_b, y1_b, x2_b, y2_b, _ = bbox
+            player_h = max(float(y2_b - y1_b), 80.0)
+        else:
+            # Fallback: estimate from nose-to-ankle pixel distance
+            nose_y   = float(keypoints[0,  1]) if keypoints[0,  2] >= CONFIDENCE_THRESHOLD else None
+            ankle_ys = [float(keypoints[i, 1]) for i in (15, 16)
+                        if keypoints[i, 2] >= CONFIDENCE_THRESHOLD]
+            if nose_y is not None and ankle_ys:
+                player_h = max(ankle_ys) - nose_y
+            else:
+                player_h = frame.shape[0] * 0.55
+            player_h = max(player_h, 80.0)
+
         overlay = frame.copy()
 
-        # Bounding box
+        # Helper: get (x, y) as float array or None
+        def pt(idx):
+            if keypoints[idx, 2] < CONFIDENCE_THRESHOLD:
+                return None
+            return np.array([float(keypoints[idx, 0]), float(keypoints[idx, 1])])
+
+        # ── 1. Filled Torso Quadrilateral ──────────────────────────
+        ls, rs, lh, rh = pt(5), pt(6), pt(11), pt(12)
+        if ls is not None and rs is not None and lh is not None and rh is not None:
+            torso_pts = np.array([
+                [int(ls[0]), int(ls[1])],
+                [int(rs[0]), int(rs[1])],
+                [int(rh[0]), int(rh[1])],
+                [int(lh[0]), int(lh[1])],
+            ], dtype=np.int32)
+            cv2.fillPoly(overlay, [torso_pts], COLORS["torso"])
+            cv2.polylines(overlay, [torso_pts], True, (0, 0, 0), 1, cv2.LINE_AA)
+
+        # ── 2. Filled Limb Trapezoids ─────────────────────────────
+        # Draw in order: legs first (behind torso), then arms (in front)
+        draw_order = [
+            # Legs (drawn first so torso sits on top)
+            (12, 14), (14, 16),   # R thigh, R shin
+            (11, 13), (13, 15),   # L thigh, L shin
+            # Arms
+            (6,  8),  (8, 10),    # R upper arm, R forearm
+            (5,  7),  (7,  9),    # L upper arm, L forearm
+            # Girdles (shoulder bar, hip bar)
+            (5,  6),
+            (11, 12),
+        ]
+        for (a, b) in draw_order:
+            if (a, b) in self._FACE_PAIRS:
+                continue
+            p1, p2 = pt(a), pt(b)
+            if p1 is None or p2 is None:
+                continue
+            color = COLORS.get(PAIR_COLORS.get((a, b), "torso"), COLORS["torso"])
+            frac  = self._LIMB_WIDTHS.get((a, b), self._LIMB_WIDTHS.get((b, a), 0.05))
+            width = int(frac * player_h)
+            width = max(5, min(width, 70))
+            self._draw_limb(overlay, p1, p2, width, color)
+
+        # ── 3. Head Ellipse ───────────────────────────────────────
+        # Try nose first, then ears as fallback
+        head_pt = None
+        for idx in (0, 3, 4, 1, 2):
+            if keypoints[idx, 2] >= CONFIDENCE_THRESHOLD:
+                head_pt = (int(keypoints[idx, 0]), int(keypoints[idx, 1]))
+                break
+        if head_pt is not None:
+            # Radius proportional to player height; typical head ≈ 13 % of body
+            r_y = max(10, min(int(player_h * 0.13), 55))
+            r_x = max(8,  min(int(player_h * 0.09), 40))
+            face_col = COLORS.get("face", (255, 200, 55))
+            cv2.ellipse(overlay, head_pt, (r_x, r_y), 0, 0, 360, face_col, -1, cv2.LINE_AA)
+            cv2.ellipse(overlay, head_pt, (r_x, r_y), 0, 0, 360, (0, 0, 0),  2, cv2.LINE_AA)
+
+        # ── 4. Face skeleton lines (thin, not filled) ─────────────
+        for (a, b) in self._FACE_PAIRS:
+            p1, p2 = pt(a), pt(b)
+            if p1 is None or p2 is None:
+                continue
+            cv2.line(overlay, tuple(p1.astype(int)), tuple(p2.astype(int)),
+                     COLORS.get("face", (255, 200, 55)), 1, cv2.LINE_AA)
+
+        # ── 5. Joint circles ──────────────────────────────────────
+        for i in range(17):
+            p = pt(i)
+            if p is None:
+                continue
+            cx, cy = int(p[0]), int(p[1])
+            joint_r = max(4, min(int(player_h * 0.025), 10))
+            cv2.circle(overlay, (cx, cy), joint_r + 2, (20, 20, 20), -1, cv2.LINE_AA)   # dark ring
+            cv2.circle(overlay, (cx, cy), joint_r,     (255, 255, 255), -1, cv2.LINE_AA) # white fill
+
+        # ── 6. Bounding box + label ───────────────────────────────
         if bbox is not None:
             x1, y1, x2, y2, conf = bbox
             cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)),
@@ -46,30 +168,53 @@ class Visualizer:
             cv2.putText(overlay, label, (int(x1) + 3, int(y1) - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # Skeleton lines
-        for (a, b) in SKELETON_PAIRS:
-            if keypoints[a][2] < CONFIDENCE_THRESHOLD or keypoints[b][2] < CONFIDENCE_THRESHOLD:
-                continue
-            pt1 = (int(keypoints[a][0]), int(keypoints[a][1]))
-            pt2 = (int(keypoints[b][0]), int(keypoints[b][1]))
-            color = COLORS.get(PAIR_COLORS.get((a, b), "torso"), COLORS["torso"])
-            cv2.line(overlay, pt1, pt2, color, 3, cv2.LINE_AA)
-
-        # Keypoint dots + labels
-        for i in range(17):
-            if keypoints[i][2] < CONFIDENCE_THRESHOLD:
-                continue
-            cx, cy = int(keypoints[i][0]), int(keypoints[i][1])
-            # Outer ring + filled center
-            cv2.circle(overlay, (cx, cy), 7, (0, 0, 0), -1, cv2.LINE_AA)
-            cv2.circle(overlay, (cx, cy), 5, COLORS["keypoint"], -1, cv2.LINE_AA)
-
-            # We removed the tiny text labels here (like 'RWr') because they clutter 
-            # the screen. The angle labels (drawn later) are much more important.
-
-        # Blend overlay
-        cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+        # ── Blend: 80 % new overlay, 20 % original frame ─────────
+        # (slightly more transparent than before so the player is still visible)
+        cv2.addWeighted(overlay, 0.80, frame, 0.20, 0, frame)
         return frame
+
+    # ── helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _draw_limb(frame: np.ndarray,
+                   pt1: np.ndarray, pt2: np.ndarray,
+                   width: int, color: tuple) -> None:
+        """
+        Draw a filled, tapered trapezoid representing one body segment.
+
+        The trapezoid is wider at pt1 (proximal / body end) and slightly
+        narrower at pt2 (distal / extremity end), which mimics how real
+        limbs taper from shoulder → wrist and hip → ankle.
+
+        Args:
+            frame:  BGR image to draw on (mutated in-place).
+            pt1:    Proximal keypoint as float (x, y) array.
+            pt2:    Distal  keypoint as float (x, y) array.
+            width:  Width of the limb in pixels at the proximal end.
+            color:  BGR fill color tuple.
+        """
+        direction = pt2 - pt1
+        length = float(np.linalg.norm(direction))
+        if length < 2.0:
+            return
+
+        # Unit perpendicular vector (90° from limb direction)
+        perp = np.array([-direction[1], direction[0]]) / length
+
+        half_w1 = width / 2.0          # proximal half-width
+        half_w2 = width / 2.0 * 0.65   # distal half-width (tapered ~35%)
+
+        corners = np.array([
+            pt1 + perp * half_w1,    # proximal left
+            pt1 - perp * half_w1,    # proximal right
+            pt2 - perp * half_w2,    # distal right
+            pt2 + perp * half_w2,    # distal left
+        ], dtype=np.int32)
+
+        cv2.fillPoly(frame, [corners], color)
+        # Thin dark outline for depth / separation between adjacent limbs
+        cv2.polylines(frame, [corners], isClosed=True,
+                      color=(0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
 
     # ── angle arcs ────────────────────────────────────────────
 
