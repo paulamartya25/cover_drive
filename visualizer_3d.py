@@ -76,106 +76,87 @@ def _build_and_normalise(keypoints_list):
 
 
 def _populate_axes(ax, pts_n, angles, score, shot_type):
-    """Clear the axes and redraw a human-figure 3D skeleton with filled segments."""
-    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    """
+    Draw a mannequin-style dummy person using thick rounded lines.
 
+    Thick matplotlib 3D lines render as cylinders — at linewidth 10–14
+    they look like actual limb tubes, giving a clear human-dummy shape
+    that is immediately recognisable from any viewing angle.
+
+    Rendering layers (back → front):
+      1. Thick coloured limb lines  (look like 3D cylinders)
+      2. White joint spheres        (mark every articulation point)
+      3. Gold head sphere           (large, proportional to body)
+      4. Angle text annotations
+    """
     ax.cla()
     ax.set_facecolor("#0d1117")
 
     title = f"3D Posture Model  |  Score: {score}/100"
     if shot_type and shot_type != "Unknown Shot":
         title += f"  |  {shot_type}"
-    ax.set_title(title, color="white", fontsize=11, pad=10)
+    ax.set_title(title, color="white", fontsize=12, pad=12)
 
-    # ── Helper: map pts_n → matplotlib (X, Y, Z) coords ──────
-    # pts_n stores (x, y, z) where x=horiz, y=vert(inverted), z=depth
-    # matplotlib plot call: ax.plot(X, Y, Z) = ax.plot(x, z, y)
-    # So matplotlib X=pts[0], matplotlib Y=pts[2], matplotlib Z=pts[1]
+    # ── Coordinate helper ──────────────────────────────────────
+    # pts_n[i] = (x, y, z)  where x=horizontal, y=vertical(inverted), z=depth
+    # matplotlib axes:  plot(X, Y, Z) → X=horiz, Y=depth, Z=up/down
     def mpl(idx):
         p = pts_n[idx]
-        return (p[0], p[2], p[1])   # (mpl_x, mpl_y, mpl_z)
+        return p[0], p[2], p[1]   # (mpl_X, mpl_Y, mpl_Z)
 
-    # ── Limb widths (in normalised coords) ───────────────────
-    LIMB_W = {
-        (5,  6): 0.09,   # shoulder girdle
-        (5,  7): 0.05,   # L upper arm
-        (7,  9): 0.038,  # L forearm
-        (6,  8): 0.05,   # R upper arm
-        (8, 10): 0.038,  # R forearm
-        (11,12): 0.09,   # hip girdle
-        (11,13): 0.065,  # L thigh
-        (13,15): 0.048,  # L shin
-        (12,14): 0.065,  # R thigh
-        (14,16): 0.048,  # R shin
+    # ── Limb styles: (color_hex, linewidth) ───────────────────
+    # Thicker = looks more like a solid cylinder limb
+    LIMB_STYLE = {
+        (5,  6): ("#00FFFF", 14),   # shoulder girdle   — cyan
+        (5,  7): ("#00FF80", 13),   # L upper arm       — green
+        (7,  9): ("#00FF80", 11),   # L forearm         — green
+        (6,  8): ("#FFB300", 13),   # R upper arm       — amber
+        (8, 10): ("#FFB300", 11),   # R forearm         — amber
+        (5, 11): ("#00FFFF", 12),   # L torso side      — cyan
+        (6, 12): ("#00FFFF", 12),   # R torso side      — cyan
+        (11,12): ("#00FFFF", 14),   # hip girdle        — cyan
+        (11,13): ("#FF2080", 14),   # L thigh           — pink
+        (13,15): ("#FF2080", 12),   # L shin            — pink
+        (12,14): ("#9933FF", 14),   # R thigh           — purple
+        (14,16): ("#9933FF", 12),   # R shin            — purple
     }
 
-    def ribbon(p1, p2, half_w):
-        """
-        Return a flat horizontal ribbon (Poly3DCollection vertices list)
-        for the limb from p1→p2 in matplotlib (X,Y,Z) coords.
-        The ribbon is offset in the X direction (left/right) so it faces
-        the default camera angle.
-        """
-        x1, y1, z1 = p1
-        x2, y2, z2 = p2
-        hw1 = half_w            # proximal half-width
-        hw2 = half_w * 0.65     # distal  half-width (tapered)
-        return [
-            (x1 - hw1, y1, z1),
-            (x1 + hw1, y1, z1),
-            (x2 + hw2, y2, z2),
-            (x2 - hw2, y2, z2),
-        ]
-
-    # ── 1. Filled Torso Quad ──────────────────────────────────
-    if all(k in pts_n for k in (5, 6, 11, 12)):
-        ls, rs = mpl(5), mpl(6)
-        lh, rh = mpl(11), mpl(12)
-        torso_verts = [[ls, rs, rh, lh]]
-        torso_col = Poly3DCollection(torso_verts, alpha=0.75, zorder=2)
-        torso_col.set_facecolor("#00FFFF")
-        torso_col.set_edgecolor("#000000")
-        ax.add_collection3d(torso_col)
-
-    # ── 2. Filled Limb Ribbons ────────────────────────────────
-    # Draw order: legs first (behind), then arms (in front)
-    draw_order = [
-        (12,14), (14,16),   # R thigh, R shin
-        (11,13), (13,15),   # L thigh, L shin
-        (6, 8),  (8,10),    # R upper arm, R forearm
-        (5, 7),  (7, 9),    # L upper arm, L forearm
-        (5, 6),             # shoulder bar
-        (11,12),            # hip bar
-    ]
-    for (a, b) in draw_order:
+    # ── 1. Thick limb lines ───────────────────────────────────
+    for (a, b), (col, lw) in LIMB_STYLE.items():
         if a not in pts_n or b not in pts_n:
             continue
-        col_hex = SEGMENT_COLORS.get((a, b), SEGMENT_COLORS.get((b, a), "#FFFFFF"))
-        half_w  = LIMB_W.get((a, b), LIMB_W.get((b, a), 0.04))
-        verts   = [ribbon(mpl(a), mpl(b), half_w)]
-        poly    = Poly3DCollection(verts, alpha=0.85, zorder=3)
-        poly.set_facecolor(col_hex)
-        poly.set_edgecolor("#111111")
-        ax.add_collection3d(poly)
+        xa, ya, za = mpl(a)
+        xb, yb, zb = mpl(b)
+        ax.plot([xa, xb], [ya, yb], [za, zb],
+                color=col, linewidth=lw,
+                solid_capstyle="round", solid_joinstyle="round",
+                zorder=3)
 
-    # ── 3. Head Sphere ────────────────────────────────────────
-    head_idx = next((i for i in (0, 3, 4, 1, 2) if i in pts_n), None)
-    if head_idx is not None:
-        hx, hy, hz = mpl(head_idx)
-        ax.scatter(hx, hy, hz,
-                   color="#FFD700", s=1200,
-                   zorder=6, depthshade=False, edgecolors="#000000", linewidths=1.5)
-
-    # ── 4. Joint Spheres ──────────────────────────────────────
+    # ── 2. Joint spheres (white with dark outline) ────────────
     for idx in pts_n:
-        if idx in (0, 1, 2, 3, 4):   # face keypoints — skip (head sphere covers these)
+        if idx in (0, 1, 2, 3, 4):   # face pts — covered by head sphere
             continue
         x, y, z = mpl(idx)
         ax.scatter(x, y, z,
-                   color="#FFFFFF", s=160,
-                   zorder=5, depthshade=False, edgecolors="#333333", linewidths=1)
+                   color="#FFFFFF", s=220, zorder=5,
+                   depthshade=False,
+                   edgecolors="#222222", linewidths=1.5)
 
-    # ── 5. Angle Annotations ──────────────────────────────────
+    # ── 3. Head sphere ────────────────────────────────────────
+    # Try nose first, fall back to ear keypoints
+    head_idx = next((i for i in (0, 3, 4, 1, 2) if i in pts_n), None)
+    if head_idx is not None:
+        hx, hy, hz = mpl(head_idx)
+        # Outer dark ring for contrast against any background
+        ax.scatter(hx, hy, hz,
+                   color="#8B6914", s=3000, zorder=5,
+                   depthshade=False, edgecolors="#000000", linewidths=0)
+        # Gold fill
+        ax.scatter(hx, hy, hz,
+                   color="#FFD700", s=2400, zorder=6,
+                   depthshade=False, edgecolors="#AA8800", linewidths=2)
+
+    # ── 4. Angle annotations ──────────────────────────────────
     annotations = {
         7:  ("F.Elbow", angles.get("Front Elbow")),
         8:  ("B.Elbow", angles.get("Back Elbow")),
@@ -185,19 +166,18 @@ def _populate_axes(ax, pts_n, angles, score, shot_type):
     for idx, (label, val) in annotations.items():
         if idx in pts_n and val is not None:
             x, y, z = mpl(idx)
-            ax.text(x + 0.05, y, z + 0.05,
+            ax.text(x + 0.06, y, z + 0.06,
                     f"{label}\n{val:.0f}°",
-                    color="white", fontsize=8, fontweight="bold", zorder=7)
+                    color="white", fontsize=9, fontweight="bold", zorder=7)
 
-    # ── 6. Axes styling ───────────────────────────────────────
+    # ── 5. Axis styling ───────────────────────────────────────
     for axis in [ax.xaxis, ax.yaxis, ax.zaxis]:
         axis.pane.fill = False
         axis.set_tick_params(colors="#555555", labelsize=7)
     ax.set_xlabel("← Left  |  Right →", color="#666666", fontsize=8)
     ax.set_ylabel("Depth",               color="#666666", fontsize=8)
     ax.set_zlabel("↑ Up  |  Down ↓",    color="#666666", fontsize=8)
-    ax.grid(True, color="#223344", linewidth=0.4)
-
+    ax.grid(True, color="#1a2a3a", linewidth=0.5)
 
 
 # ── Persistent viewer process ─────────────────────────────────
