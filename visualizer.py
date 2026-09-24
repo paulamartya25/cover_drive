@@ -168,10 +168,12 @@ class Visualizer:
             cv2.putText(overlay, label, (int(x1) + 3, int(y1) - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
-        # ── Blend: 80 % new overlay, 20 % original frame ─────────
-        # (slightly more transparent than before so the player is still visible)
-        cv2.addWeighted(overlay, 0.80, frame, 0.20, 0, frame)
+        # ── Blend: 55 % skeleton overlay, 45 % original frame ─────
+        # 45 % of the original frame bleeds through → player is clearly
+        # visible underneath the coloured body segments.
+        cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
         return frame
+
 
     # ── helpers ───────────────────────────────────────────────
 
