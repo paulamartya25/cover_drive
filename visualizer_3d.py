@@ -105,21 +105,23 @@ def _populate_axes(ax, pts_n, angles, score, shot_type):
         return p[0], p[2], p[1]   # (mpl_X, mpl_Y, mpl_Z)
 
     # ── Limb styles: (color_hex, linewidth) ───────────────────
-    # Thicker = looks more like a solid cylinder limb
+    # Thicker = looks more like a solid cylinder limb.
+    # NOTE: torso SIDES (5,11) and (6,12) are intentionally OMITTED —
+    #   at lw=12 they form a giant cyan box. The torso is instead implied
+    #   by the shoulder and hip bars at thin linewidth.
     LIMB_STYLE = {
-        (5,  6): ("#00FFFF", 14),   # shoulder girdle   — cyan
-        (5,  7): ("#00FF80", 13),   # L upper arm       — green
-        (7,  9): ("#00FF80", 11),   # L forearm         — green
-        (6,  8): ("#FFB300", 13),   # R upper arm       — amber
-        (8, 10): ("#FFB300", 11),   # R forearm         — amber
-        (5, 11): ("#00FFFF", 12),   # L torso side      — cyan
-        (6, 12): ("#00FFFF", 12),   # R torso side      — cyan
-        (11,12): ("#00FFFF", 14),   # hip girdle        — cyan
-        (11,13): ("#FF2080", 14),   # L thigh           — pink
-        (13,15): ("#FF2080", 12),   # L shin            — pink
-        (12,14): ("#9933FF", 14),   # R thigh           — purple
-        (14,16): ("#9933FF", 12),   # R shin            — purple
+        (5,  6): ("#00FFFF",  6),   # shoulder bar     — thin connector
+        (11,12): ("#00FFFF",  6),   # hip bar          — thin connector
+        (5,  7): ("#00FF80", 13),   # L upper arm      — green
+        (7,  9): ("#00FF80", 11),   # L forearm        — green
+        (6,  8): ("#FFB300", 13),   # R upper arm      — amber
+        (8, 10): ("#FFB300", 11),   # R forearm        — amber
+        (11,13): ("#FF2080", 14),   # L thigh          — pink
+        (13,15): ("#FF2080", 12),   # L shin           — pink
+        (12,14): ("#9933FF", 14),   # R thigh          — purple
+        (14,16): ("#9933FF", 12),   # R shin           — purple
     }
+
 
     # ── 1. Thick limb lines ───────────────────────────────────
     for (a, b), (col, lw) in LIMB_STYLE.items():

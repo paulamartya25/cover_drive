@@ -153,25 +153,44 @@ HEIGHT_QUALITY_ADJUSTMENTS = {
 # This makes classification robust to missing/occluded keypoints.
 # Priority order: Cover Drive → Pull Shot → Sweep Shot → Defensive Push
 SHOT_SIGNATURES = {
+    # ── Cover Drive ─────────────────────────────────────────────
+    # Front elbow: 100-180 (was 125-180). 100-124 is valid mid-extension
+    #   during a cover drive and was previously triggering Pull Shot instead.
+    # Front knee:  110-175 — slight bend for weight transfer.
+    # Shoulder Line: 0-45  — shoulders closed (pointing at bowler).
     "Cover Drive": {
-        "Front Elbow":  (125, 180),
-        "Front Knee":   (110, 175),
-        "Shoulder Line":(0, 50),
+        "Front Elbow":   (100, 180),
+        "Front Knee":    (110, 175),
+        "Shoulder Line": (0,   45),
     },
+
+    # ── Pull Shot ─────────────────────────────────────────────
+    # Front elbow: 85-155 — arm pulled across the body (shortened upper end).
+    # Shoulder Line: 35-90 — shoulders more open/rotated (key differentiator
+    #   from cover drive; raised minimum from 25 to 35).
+    # Hip Angle: 55-135 — hip rotation typical of pull/hook.
     "Pull Shot": {
-        "Front Elbow":  (85, 165),
-        "Shoulder Line":(25, 90),
-        "Hip Angle":    (55, 135),
+        "Front Elbow":   (85,  155),
+        "Shoulder Line": (35,   90),
+        "Hip Angle":     (55,  135),
     },
+
+    # ── Sweep Shot ───────────────────────────────────────────
+    # Deep knee bend is the defining feature.
+    # Hip: lowered minimum to 40 for very low sweeps.
     "Sweep Shot": {
-        "Front Knee":   (60, 120),     # extreme knee bend
-        "Hip Angle":    (45, 125),     # widened range
+        "Front Knee":  (55, 120),
+        "Hip Angle":   (40, 125),
     },
+
+    # ── Defensive Push ───────────────────────────────────────
+    # Front elbow fairly straight, front knee very extended (upright stance).
     "Defensive Push": {
-        "Front Elbow":  (85, 145),
-        "Front Knee":   (150, 180),
+        "Front Elbow": (90,  150),
+        "Front Knee":  (155, 180),
     },
 }
+
 
 # ── Cover Drive Phase Thresholds ──────────────────────────────
 PHASE_NAMES = ["Stance", "Backswing & Stride", "Downswing & Impact", "Follow-through"]

@@ -220,13 +220,22 @@ class CoverDriveAnalyzer:
     def _classify_shot(angles: dict) -> str:
         """
         Match observed angles against known shot signatures.
-        Uses MAJORITY matching: at least 2 rules must match.
-        This handles occluded keypoints gracefully — if one joint
-        is hidden, the other two still identify the shot.
-        Returns the shot name or "" if nothing matches confidently.
+
+        Scoring:
+          - Each shot accumulates one point per matching rule.
+          - Requires at least 2 matches (or all rules if < 2 rules exist).
+          - Tiebreak: SHOT_SIGNATURES insertion order is the priority list
+            (Cover Drive > Pull Shot > Sweep Shot > Defensive Push).
+            If two shots tie on match count, the higher-priority one wins.
+
+        Returns the shot name, or "" if nothing matches confidently.
         """
-        best_shot     = ""
-        best_matches  = 0
+        # Priority order follows SHOT_SIGNATURES dict order (Python 3.7+)
+        PRIORITY = {name: i for i, name in enumerate(SHOT_SIGNATURES)}
+
+        best_shot    = ""
+        best_matches = 0
+        best_priority = 999
 
         for shot_name, rules in SHOT_SIGNATURES.items():
             matched = 0
@@ -235,13 +244,17 @@ class CoverDriveAnalyzer:
                 val = angles.get(angle_name)
                 if val is not None and lo <= val <= hi:
                     matched += 1
-            # Require at least 2 matches (or all if only 2 rules exist)
             min_required = min(2, total)
-            if matched >= min_required and matched > best_matches:
-                best_matches = matched
-                best_shot    = shot_name
+            if matched >= min_required:
+                priority = PRIORITY[shot_name]
+                # Accept if: more matches, OR same matches but higher priority
+                if matched > best_matches or (matched == best_matches and priority < best_priority):
+                    best_matches  = matched
+                    best_shot     = shot_name
+                    best_priority = priority
 
         return best_shot   # empty string "" if no shot matched confidently
+
 
     # ── Coaching Tips ─────────────────────────────────────────
 
