@@ -1,127 +1,181 @@
-# 🏏 Posture Expert — AI Cricket Cover Drive Analysis
+# Posture Expert: Cricket Cover Drive Analysis
 
-An advanced computer vision pipeline for real-time biomechanical analysis of the cricket cover drive. 
+A computer vision pipeline that analyses the cricket cover drive from broadcast-style video or images. It finds the batter, detects the phase of the shot, measures six joint angles at the moment of impact, and shows a posture score with coaching tips.
 
-## 📸 System in Action
-The system is highly robust across various broadcast angles, camera zooms, and batting phases:
-
-| Impact Phase (Player 1) | Impact Phase (Player 2) |
-| :---: | :---: |
-| ![Demo 1](assets/demo1.png) | ![Demo 2](assets/demo2.png) |
-
-| Stance Phase | High-Zoom Tracking |
-| :---: | :---: |
-| ![Demo 3](assets/demo3.png) | ![Demo 4](assets/demo4.png) |
-
-*(Also correctly identifies and scores varying postures like in [Demo 5](assets/demo5.png))*
+The pose model (YOLOv8-Pose) is pretrained by Ultralytics. My work in this project is everything around it: identifying the batter in a crowded scene, detecting shot phases when the legs are hidden by pads, computing the joint angles, scoring, and the on-screen display.
 
 ---
 
-## 🧠 Technical Architecture & Theory
+## Demo
 
-This project was engineered to solve three major challenges in sports computer vision: **Multi-person disambiguation** (finding the batsman among bowlers/fielders), **Occlusion handling** (dealing with batting pads blocking lower-body keypoints), and **Real-time processing** (running frame-by-frame analysis without lag).
+| Impact phase (player 1) | Impact phase (player 2) |
+| --- | --- |
+| [![Demo 1](assets/demo1.png)](assets/demo1.png) | [![Demo 2](assets/demo2.png)](assets/demo2.png) |
 
-### 🏗️ System Architecture Flowchart
+| Stance phase | High-zoom tracking |
+| --- | --- |
+| [![Demo 3](assets/demo3.png)](assets/demo3.png) | [![Demo 4](assets/demo4.png)](assets/demo4.png) |
 
-![System Architecture Flowchart](assets/flowchart.png)
-
-### Core Libraries & Architectural Justification
-
-#### 1. Pose Estimation: Ultralytics YOLOv8-Pose
-* **Why YOLOv8?** We chose YOLOv8 over alternatives like **MediaPipe** or **OpenPose**. 
-  * *MediaPipe* is exceptionally fast but natively struggles with multi-person scenes (it frequently jumps between the bowler, non-striker, and striker).
-  * *OpenPose* handles multiple people well but is computationally heavy, often requiring high-end GPUs to achieve real-time FPS. 
-  * *YOLOv8-Pose* strikes the perfect balance: a single-pass CNN architecture that simultaneously detects bounding boxes and 17 COCO keypoints, maintaining high FPS while easily tracking 10+ people on a cricket field.
-* **Implementation:** The model is configured with a lowered `CONFIDENCE_THRESHOLD = 0.35` specifically to combat the occlusion caused by bulky cricket equipment (helmets, batting pads, and gloves) which usually confuse standard COCO-trained models.
-
-#### 2. Vision & UI Pipeline: OpenCV (`cv2`)
-* **Why OpenCV?** For the graphical pipeline, OpenCV was chosen over high-level wrappers like *PIL* or *Matplotlib*. 
-  * Video streams are effectively massive 3D arrays (Frames × Height × Width × Channels). OpenCV operates directly on memory buffers using heavily optimized C/C++ backends.
-  * It provides zero-overhead rendering for our HUD, dynamically padding frames to standardize resolution (preventing text-squashing on TikTok/vertical video formats), and creating the broadcast-style freeze-frame effect.
-
-#### 3. Biomechanical Mathematics: NumPy
-* **Why NumPy?** Computing 6 different joint angles per frame requires calculating inverse tangents across 3-point vertices.
-  * Doing this in pure Python `math` loops is slow. NumPy vectorizes these operations, running them closer to the hardware level.
+These are selected examples where the system works. See Limitations for where it does not. A further example is in [Demo 5](assets/demo5.png).
 
 ---
 
-## ⚙️ Algorithmic Deep-Dive
+## What it does
 
-### 1. Smart Striker Identification (`pose_detector.py`)
-Cricket broadcasts present a unique challenge: the bowler is often in the extreme foreground (producing the largest bounding box), and the non-striker is closer to the camera than the striker. 
-To solve this, the system uses a heuristic scoring algorithm rather than naïve area-based selection:
-* **Centrality Score:** The camera invariably tracks the ball, placing the striker near the horizontal center (`image_width / 2`).
-* **Depth Penalty (`y2` coordinate):** Foreground objects (bowlers) have their feet at the very bottom edge of the frame. The system mathematically penalizes bounding boxes that touch the bottom 10% of the screen.
-* **Area Filtering:** Rejects microscopic boxes (deep fielders) to save compute.
-
-### 2. Occlusion-Resistant Phase Detection (`cover_drive_analyzer.py`)
-Biomechanical analysis requires knowing *when* the shot is being played. The system breaks the shot into 4 phases: *Stance, Backswing & Stride, Downswing & Impact, Follow-through*.
-* **The Pad Problem:** Batting pads heavily obscure the knees and ankles, meaning `front_knee` confidence often drops to zero. 
-* **The Solution:** The algorithm uses the upper body as a proxy. For the critical **Impact** phase, it looks for an extended front elbow (`> 130°`) combined with the wrists dropping below the hips/shoulders. 
-
-### 3. Broadcast Freeze-Frame (`main.py`)
-To prevent visual clutter, the system mimics a professional sports broadcast. 
-1. While the bowler runs in, the video plays cleanly with no skeletal overlays.
-2. The AI silently analyzes frames in the background memory buffer.
-3. The exact millisecond the algorithm detects the `Downswing & Impact` phase, it triggers an interrupt.
-4. The system pauses the video, renders the 17 keypoints, calculates the 6 joint angles, computes the Posture Score (0-100), and overlays the coaching HUD.
+- **Batter identification:** picks the batter out of a scene with bowlers, fielders, and the non-striker.
+- **Phase detection:** labels the shot as Stance, Backswing and Stride, Downswing and Impact, or Follow-through.
+- **Joint angles:** computes six angles (front and back elbow, front and back knee, hip rotation, shoulder alignment) from 17 body keypoints.
+- **Posture score:** a 0 to 100 score based on how close the angles are to target ranges set in `config.py`. It is a heuristic, not a validated measure.
+- **Coaching display:** shows the skeleton, angles, score, and short feedback on screen.
+- **Freeze-frame:** plays the video cleanly, then pauses at the impact phase and draws the analysis, similar to a broadcast replay.
 
 ---
 
-## 📊 Evaluation Metrics & Benchmarks
+## Architecture
 
-To ensure production readiness, the system is evaluated on both **Inference Latency** and **Spatial/Temporal Accuracy**.
+[![System architecture flowchart](assets/flowchart.png)](assets/flowchart.png)
 
-### Inference Performance (CPU Benchmark)
-By utilizing fully vectorized NumPy operations, the biomechanical engine adds virtually zero overhead to the AI inference.
-*   **Overall Pipeline:** ~18.86 FPS
-*   **AI Inference (YOLOv8):** 49.53 ms
-*   **OpenCV Rendering:** 0.64 ms
-*   **Biomechanics Math (NumPy):** **0.02 ms** *(Highly Optimized)*
+The three problems this project works on:
 
-### Accuracy Metrics (IoU & PCK)
-To mathematically prove the robustness of the system, the repository includes an `evaluation_metrics.py` module. This script calculates spatial and temporal Intersection over Union (IoU) against ground-truth data to evaluate the Smart Tracking Heuristic and Phase Detection logic.
+1. **Multi-person scenes:** finding the batter among bowlers and fielders.
+2. **Occlusion:** pads and gloves hide the lower-body keypoints.
+3. **Speed:** keeping frame-by-frame analysis close to real time on a CPU.
 
-**Example Evaluation Output:**
-```text
-==================================================
-🏏 POSTURE EXPERT: EVALUATION METRICS MODULE
-==================================================
+### Design choices
 
-[1] Spatial Accuracy (Bounding Box IoU)
-Ground Truth Box: [100, 100, 200, 200]
-Predicted Box:    [90, 110, 210, 190]
-Calculated IoU:   0.6800 (68.0%)
-Result: ✅ True Positive (IoU > 0.50)
+**Pose model: YOLOv8-Pose.** I compared it with MediaPipe and OpenPose.
 
-[2] Phase Detection Accuracy (Temporal IoU)
-Ground Truth 'Impact' Phase: 2.5s to 3.0s
-Predicted 'Impact' Phase:    2.6s to 3.1s
-Calculated Temporal IoU:     0.6667 (66.7%)
-Result: ✅ Accurate Phase Detection (IoU > 0.50)
-```
-*   **PCK (Percentage of Correct Keypoints):** This metric is utilized to benchmark YOLO's spatial pixel accuracy for critical joints (elbows/knees) against human annotations.
+- MediaPipe is very fast but is built around a single person, and in cricket footage it tends to jump between the bowler, non-striker, and striker.
+- OpenPose handles several people but is heavy, and needs a strong GPU to run in real time.
+- YOLOv8-Pose detects people and 17 COCO keypoints in a single pass and runs on a CPU, which suited this project.
+
+I lowered the detection confidence threshold to `0.35` to keep more keypoints when helmets, pads, and gloves reduce confidence. I did not measure the effect of this choice, and a lower threshold can also allow more false detections.
+
+**OpenCV** is used for video reading, drawing, and the display. **NumPy** computes the joint angles with vectorised operations.
 
 ---
 
-## 💻 Quick Start & Commands
+## Algorithms
 
-**Installation:**
+### 1. Batter identification (`pose_detector.py`)
+
+In broadcast footage the bowler can have the largest box, and the non-striker is often nearer the camera than the batter, so picking the biggest person fails. Instead, each detected person gets a score:
+
+- **Centrality:** the camera usually follows the action, so the batter tends to be near the horizontal centre of the frame.
+- **Depth penalty:** boxes whose feet touch the bottom 10% of the frame (typically a bowler in the foreground) are penalised.
+- **Size filter:** very small boxes (distant fielders) are ignored.
+
+This is a hand-tuned heuristic for broadcast-style footage. See Limitations.
+
+### 2. Phase detection under occlusion (`cover_drive_analyzer.py`)
+
+Pads often hide the knees and ankles, so the front-knee keypoint can have near-zero confidence. The phase logic therefore leans on the upper body. For the impact phase it looks for an extended front elbow (above 130 degrees) combined with the wrists dropping below the hips and shoulders.
+
+### 3. Freeze-frame (`main.py`)
+
+1. The video plays without overlays while the bowler runs in.
+2. Frames are analysed in the background.
+3. When the impact phase is detected, the video pauses, the keypoints are drawn, the six angles and the score are computed, and the coaching display appears.
+
+---
+
+## Benchmarks and evaluation
+
+### Speed (CPU)
+
+Measured on [CPU model and RAM], using `yolov8n-pose.pt` on [video resolution]:
+
+| Stage | Time |
+| --- | --- |
+| YOLOv8 inference | 49.53 ms |
+| OpenCV rendering | 0.64 ms |
+| Angle calculation (NumPy) | 0.02 ms |
+| Whole pipeline | about 18.86 FPS |
+
+Inference is by far the largest cost. The angle calculation is negligible.
+
+### Accuracy
+
+`evaluation_metrics.py` contains functions for bounding-box IoU, temporal IoU of the impact phase, and PCK (percentage of correct keypoints). The example output in that file uses made-up numbers to show how each metric is calculated. **It is not a result.**
+
+I evaluated the pipeline on [N] hand-labelled frames and clips from [source of footage]:
+
+| Check | Result |
+| --- | --- |
+| Batter correctly identified | [x of N frames] |
+| Impact phase, temporal IoU above 0.5 | [x of N clips] |
+| PCK@0.2, elbows and knees | [value] on [N] annotated frames |
+
+[One or two sentences on where it failed.]
+
+---
+
+## Limitations
+
+- The batter-identification heuristic assumes broadcast-style footage, with the batter near the centre of the frame. It was tuned on [N] clips and will likely fail in other camera setups.
+- Joint angles are measured in 2D, so they change with the camera angle.
+- Pads and gloves reduce keypoint confidence, so lower-body angles are less reliable.
+- Phase thresholds and the posture score's target ranges were set by hand and have not been validated against coaching data.
+- Only one batter is analysed at a time. [State whether left-handed batters are supported.]
+- This is a learning and demonstration project, not a replacement for a coach.
+
+---
+
+## Quick start
+
 ```bash
+git clone https://github.com/paulamartya25/cover_drive.git
+cd cover_drive
 pip install -r requirements.txt
 ```
 
-**Running the App:**
+The pose model is downloaded automatically by Ultralytics on first run.
+
 ```bash
-# Easiest way (Opens a file picker)
+# Opens a file picker
 python main.py
 
-# CLI specific paths
+# Specific files
 python main.py --video my_video.mp4
 python main.py --image my_image.jpg
 ```
 
-**In-App Controls:**
-* `p` — Manually pause the video and instantly force a biomechanical analysis on that exact frame.
-* `s` — Save a high-resolution screenshot of the current analysis.
-* `q` or `ESC` — Quit the application.
+Controls:
+
+| Key | Action |
+| --- | --- |
+| `p` | Pause and force an analysis of the current frame |
+| `s` | Save a screenshot of the current analysis |
+| `q` / ESC | Quit |
+
+---
+
+## Project structure
+
+```
+cover_drive/
+├── main.py                  # Entry point and freeze-frame logic
+├── pose_detector.py         # YOLOv8-Pose wrapper and batter identification
+├── angle_calculator.py      # Joint angle computation
+├── cover_drive_analyzer.py  # Phase detection and scoring
+├── visualizer.py            # Skeleton drawing and on-screen display
+├── config.py                # Constants and target angle ranges
+├── evaluation_metrics.py    # IoU, temporal IoU, and PCK functions
+├── assets/                  # Demo screenshots and flowchart
+└── requirements.txt
+```
+
+---
+
+## Future work
+
+- Report real accuracy numbers on a labelled test set (see Accuracy above)
+- Validate the posture score against coach-labelled clips
+- Smooth angles over time to reduce jitter
+- Support more shots (pull, cut, straight drive)
+
+---
+
+Built with [Ultralytics YOLOv8](https://docs.ultralytics.com/), OpenCV, and NumPy.
+
+Author: Amartya Paul. [GitHub](https://github.com/paulamartya25)
